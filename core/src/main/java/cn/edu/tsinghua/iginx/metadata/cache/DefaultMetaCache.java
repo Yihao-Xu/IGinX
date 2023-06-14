@@ -22,12 +22,17 @@ import cn.edu.tsinghua.iginx.conf.Config;
 import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
 import cn.edu.tsinghua.iginx.engine.shared.data.write.*;
 import cn.edu.tsinghua.iginx.metadata.entity.*;
+import cn.edu.tsinghua.iginx.metadata.statistics.ColumnStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.ColumnsIntervalStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.IginxStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.StorageEngineStatistics;
 import cn.edu.tsinghua.iginx.policy.simple.ColumnCalDO;
 import cn.edu.tsinghua.iginx.sql.statement.InsertStatement;
 import cn.edu.tsinghua.iginx.thrift.DataType;
 import cn.edu.tsinghua.iginx.utils.Pair;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -91,6 +96,18 @@ public class DefaultMetaCache implements IMetaCache {
     // transform task 的缓存
     private final Map<String, TransformTaskMeta> transformTaskMetaMap;
 
+    // 统计信息的缓存
+    private final Map<Long, IginxStatistics> activeIginxStatisticsMap;
+
+    private final Set<String> activeSeparatorSet;
+
+    private final Map<Long, StorageEngineStatistics> activeStorageEngineStatisticsMap;
+
+    private final Map<String, ColumnStatistics> activeColumnStatisticsMap;
+
+    private final Map<ColumnsInterval, ColumnsIntervalStatistics>
+            activeColumnsIntervalStatisticsMap;
+
     private DefaultMetaCache() {
         if (enableFragmentCacheControl) {
             long sizeOfFragment = FragmentMeta.sizeOf();
@@ -122,6 +139,12 @@ public class DefaultMetaCache implements IMetaCache {
         columnsVersionMap = new ConcurrentHashMap<>();
         // transform task 相关
         transformTaskMetaMap = new ConcurrentHashMap<>();
+        // 统计信息相关
+        activeIginxStatisticsMap = new ConcurrentHashMap<>();
+        activeSeparatorSet = new ConcurrentSkipListSet<>();
+        activeStorageEngineStatisticsMap = new ConcurrentHashMap<>();
+        activeColumnStatisticsMap = new ConcurrentHashMap<>();
+        activeColumnsIntervalStatisticsMap = new ConcurrentHashMap<>();
     }
 
     public static DefaultMetaCache getInstance() {
@@ -928,5 +951,202 @@ public class DefaultMetaCache implements IMetaCache {
                 .stream()
                 .map(TransformTaskMeta::copy)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void addOrUpdateActiveIginxStatistics(
+            long id, Map<Long, StorageEngineStatistics> statisticsMap) {
+        double totalHeat =
+                statisticsMap.values().stream().mapToDouble(StorageEngineStatistics::getHeat).sum();
+        activeIginxStatisticsMap.put(id, new IginxStatistics(totalHeat));
+    }
+
+    @Override
+    public Map<Long, IginxStatistics> getActiveIginxStatistics() {
+        return new HashMap<>(activeIginxStatisticsMap);
+    }
+
+    @Override
+    public void clearActiveIginxStatistics() {
+        activeIginxStatisticsMap.clear();
+    }
+
+    @Override
+    public double getMinActiveIginxStatistics() {
+        return activeIginxStatisticsMap
+                .values()
+                .stream()
+                .filter(x -> x.getHeat() != 0.0)
+                .mapToDouble(IginxStatistics::getHeat)
+                .min()
+                .orElse(0.0);
+    }
+
+    @Override
+    public void addOrUpdateActiveSeparatorSet(Set<String> separators) {
+        activeSeparatorSet.addAll(separators);
+    }
+
+    @Override
+    public Set<String> getActiveSeparatorSet() {
+        return new TreeSet<>(activeSeparatorSet);
+    }
+
+    @Override
+    public void clearActiveSeparatorSet() {
+        activeSeparatorSet.clear();
+    }
+
+    @Override
+    public void addOrUpdateActiveStorageEngineStatistics(
+            Map<Long, StorageEngineStatistics> statisticsMap) {
+        statisticsMap.forEach(
+                (k, v) ->
+                        activeStorageEngineStatisticsMap
+                                .computeIfAbsent(k, e -> new StorageEngineStatistics())
+                                .updateByStorageEngineStatistics(v));
+    }
+
+    @Override
+    public Map<Long, StorageEngineStatistics> getActiveStorageEngineStatistics() {
+        return new ConcurrentHashMap<>(activeStorageEngineStatisticsMap);
+    }
+
+    @Override
+    public void clearActiveStorageEngineStatistics() {
+        activeStorageEngineStatisticsMap.clear();
+    }
+
+    @Override
+    public void addOrUpdateActiveColumnStatistics(Map<String, ColumnStatistics> statisticsMap) {
+        // 更新本地的 activeColumnStatisticsMap
+        statisticsMap.forEach(
+                (k, v) ->
+                        activeColumnStatisticsMap
+                                .computeIfAbsent(k, e -> new ColumnStatistics())
+                                .update(v));
+        // 更新本地的 activeStorageEngineStatisticsMap
+        for (ColumnStatistics statistics : statisticsMap.values()) {
+            long storageEngineId = statistics.getStorageEngineId();
+            if (activeStorageEngineStatisticsMap.containsKey(storageEngineId)) {
+                activeStorageEngineStatisticsMap
+                        .get(storageEngineId)
+                        .updateByTimeSeriesStatistics(statistics);
+            } else {
+                // TODO 未考虑存储引擎的能力
+                activeStorageEngineStatisticsMap.put(
+                        storageEngineId,
+                        new StorageEngineStatistics(
+                                statistics.getTotalHeat(), 1.0, statistics.getTotalHeat()));
+            }
+        }
+    }
+
+    @Override
+    public Map<String, ColumnStatistics> getActiveColumnStatistics() {
+        return new TreeMap<>(activeColumnStatisticsMap);
+    }
+
+    @Override
+    public void clearActiveColumnStatistics() {
+        activeColumnStatisticsMap.clear();
+    }
+
+    @Override
+    public void addOrUpdateActiveColumnsIntervalStatistics(
+            Map<ColumnsInterval, ColumnsIntervalStatistics> statisticsMap) {
+        statisticsMap.forEach(
+                (key, value) ->
+                        activeColumnsIntervalStatisticsMap
+                                .computeIfAbsent(key, e -> new ColumnsIntervalStatistics())
+                                .update(value));
+    }
+
+    @Override
+    public Map<ColumnsInterval, ColumnsIntervalStatistics> getActiveColumnsIntervalStatistics() {
+        return new TreeMap<>(activeColumnsIntervalStatisticsMap);
+    }
+
+    @Override
+    public void clearActiveColumnsIntervalStatistics() {
+        activeColumnsIntervalStatisticsMap.clear();
+    }
+
+    @Override
+    public Set<String> separateActiveColumnsStatisticsByHeat(
+            double heat, Map<String, ColumnStatistics> statisticsMap) {
+        Set<String> separators = new TreeSet<>();
+        double tempSum = 0.0;
+        String tempColumn = null;
+
+        for (Map.Entry<String, ColumnStatistics> entry : statisticsMap.entrySet()) {
+            double currHeat = entry.getValue().getTotalHeat();
+            if (tempSum + currHeat >= heat) {
+                if (tempSum + currHeat - heat > heat - tempSum && tempColumn != null) {
+                    separators.add(tempColumn);
+                    tempSum = currHeat;
+                    if (tempSum >= heat) {
+                        separators.add(entry.getKey());
+                        tempSum = 0.0;
+                    }
+                } else {
+                    separators.add(entry.getKey());
+                    tempSum = 0.0;
+                }
+            } else {
+                tempSum += currHeat;
+            }
+            tempColumn = entry.getKey();
+        }
+
+        return separators;
+    }
+
+    @Override
+    public Map<ColumnsInterval, ColumnsIntervalStatistics>
+            separateActiveColumnsStatisticsBySeparators(
+                    Map<String, ColumnStatistics> statisticsMap, Set<String> separators) {
+        Map<ColumnsInterval, ColumnsIntervalStatistics> columnsIntervalStatisticsMap =
+                new TreeMap<>();
+        String prevColumn = null;
+        String nextColumn = null;
+        double tempSum = 0.0;
+        boolean needToGetNext = true;
+        int tempCount = 0;
+        Iterator<Map.Entry<String, ColumnStatistics>> it = statisticsMap.entrySet().iterator();
+        Map.Entry<String, ColumnStatistics> currEntry = null;
+
+        for (String separator : separators) {
+            nextColumn = separator;
+            while (it.hasNext()) {
+                if (needToGetNext) {
+                    currEntry = it.next();
+                }
+                if (currEntry == null || currEntry.getKey().compareTo(separator) >= 0) {
+                    break;
+                } else {
+                    tempSum += currEntry.getValue().getTotalHeat();
+                    needToGetNext = true;
+                    tempCount++;
+                }
+            }
+            columnsIntervalStatisticsMap.put(
+                    new ColumnsInterval(prevColumn, nextColumn),
+                    new ColumnsIntervalStatistics(tempSum));
+            prevColumn = nextColumn;
+            tempSum = 0.0;
+            if (tempCount == 0) {
+                needToGetNext = false;
+            }
+            tempCount = 0;
+        }
+        while (it.hasNext()) {
+            currEntry = it.next();
+            tempSum += currEntry.getValue().getTotalHeat();
+        }
+        columnsIntervalStatisticsMap.put(
+                new ColumnsInterval(nextColumn, null), new ColumnsIntervalStatistics(tempSum));
+
+        return columnsIntervalStatisticsMap;
     }
 }

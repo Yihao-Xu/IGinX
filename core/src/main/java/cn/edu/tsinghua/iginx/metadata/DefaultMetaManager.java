@@ -21,6 +21,7 @@ package cn.edu.tsinghua.iginx.metadata;
 import static cn.edu.tsinghua.iginx.metadata.utils.ReshardStatus.EXECUTING;
 import static cn.edu.tsinghua.iginx.metadata.utils.ReshardStatus.NON_RESHARDING;
 
+import cn.edu.tsinghua.iginx.conf.Config;
 import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
 import cn.edu.tsinghua.iginx.conf.Constants;
 import cn.edu.tsinghua.iginx.engine.physical.storage.StorageManager;
@@ -53,16 +54,25 @@ import org.slf4j.LoggerFactory;
 public class DefaultMetaManager implements IMetaManager {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultMetaManager.class);
+
+    private static final Config config = ConfigDescriptor.getInstance().getConfig();
+
     private static volatile DefaultMetaManager INSTANCE;
+
     private final IMetaCache cache;
 
     private final IMetaStorage storage;
-    private final List<StorageEngineChangeHook> storageEngineChangeHooks;
-    private final List<StorageUnitHook> storageUnitHooks;
-    private long id;
 
-    // 当前活跃的最大的结束时间
+    private final List<StorageEngineChangeHook> storageEngineChangeHooks;
+
+    private final List<StorageUnitHook> storageUnitHooks;
+
+    // iginx id
+    private long iginxId;
+
+    // 当前活跃的最大的结束 key
     private AtomicLong maxActiveEndKey = new AtomicLong(-1L);
+
     private AtomicInteger maxActiveEndKeyStatisticsCounter = new AtomicInteger(0);
 
     // 重分片状态
@@ -74,7 +84,7 @@ public class DefaultMetaManager implements IMetaManager {
     private DefaultMetaManager() {
         cache = DefaultMetaCache.getInstance();
 
-        switch (ConfigDescriptor.getInstance().getConfig().getMetaStorage()) {
+        switch (config.getMetaStorage()) {
             case Constants.ZOOKEEPER_META:
                 logger.info("use zookeeper as meta storage.");
                 storage = ZooKeeperMetaStorage.getInstance();
@@ -89,10 +99,7 @@ public class DefaultMetaManager implements IMetaManager {
                 storage = ETCDMetaStorage.getInstance();
                 break;
             default:
-                // without configuration, file storage should be the safe choice
-                logger.info(
-                        "unknown meta storage "
-                                + ConfigDescriptor.getInstance().getConfig().getMetaStorage());
+                logger.info("unknown meta storage {}", config.getMetaStorage());
                 storage = null;
                 System.exit(-1);
         }
@@ -113,7 +120,7 @@ public class DefaultMetaManager implements IMetaManager {
             initReshardStatus();
             initReshardCounter();
         } catch (MetaStorageException e) {
-            logger.error("init meta manager error: ", e);
+            logger.error("init meta manager error: {}", e.getMessage());
             System.exit(-1);
         }
     }
@@ -129,81 +136,6 @@ public class DefaultMetaManager implements IMetaManager {
         return INSTANCE;
     }
 
-    private void initMaxActiveEndKeyStatistics() throws MetaStorageException {
-        storage.registerMaxActiveEndKeyStatisticsChangeHook(
-                (endKey) -> {
-                    if (endKey <= 0L) {
-                        return;
-                    }
-                    updateMaxActiveEndKey(endKey);
-                    int updatedCounter = maxActiveEndKeyStatisticsCounter.incrementAndGet();
-                    logger.info(
-                            "iginx node {} increment max active end key statistics counter {}",
-                            this.id,
-                            updatedCounter);
-                });
-    }
-
-    private void initReshardStatus() throws MetaStorageException {
-        storage.registerReshardStatusHook(
-                status -> {
-                    try {
-                        reshardStatus = status;
-                        if (reshardStatus.equals(EXECUTING)) {
-                            storage.lockMaxActiveEndKeyStatistics();
-                            storage.addOrUpdateMaxActiveEndKeyStatistics(maxActiveEndKey.get());
-                            storage.releaseMaxActiveEndKeyStatistics();
-
-                            storage.lockReshardCounter();
-                            storage.incrementReshardCounter();
-                            storage.releaseReshardCounter();
-                        }
-                        if (reshardStatus.equals(NON_RESHARDING)) {
-                            if (isProposer) {
-                                logger.info("iginx node {}(proposer) finish to reshard", id);
-                            } else {
-                                logger.info("iginx node {} finish to reshard", id);
-                            }
-
-                            isProposer = false;
-                            maxActiveEndKeyStatisticsCounter.set(0);
-                        }
-                    } catch (MetaStorageException e) {
-                        logger.error("encounter error when switching reshard status: ", e);
-                    }
-                });
-        storage.lockReshardStatus();
-        storage.removeReshardStatus();
-        storage.releaseReshardStatus();
-    }
-
-    private void initReshardCounter() throws MetaStorageException {
-        storage.registerReshardCounterChangeHook(
-                counter -> {
-                    try {
-                        if (counter <= 0) {
-                            return;
-                        }
-                        if (isProposer && counter == getIginxList().size() - 1) {
-                            storage.lockReshardCounter();
-                            storage.resetReshardCounter();
-                            storage.releaseReshardCounter();
-
-                            if (reshardStatus == EXECUTING) {
-                                storage.lockReshardStatus();
-                                storage.updateReshardStatus(NON_RESHARDING);
-                                storage.releaseReshardStatus();
-                            }
-                        }
-                    } catch (MetaStorageException e) {
-                        logger.error("encounter error when updating reshard counter: ", e);
-                    }
-                });
-        storage.lockReshardCounter();
-        storage.removeReshardCounter();
-        storage.releaseReshardCounter();
-    }
-
     private void initIginx() throws MetaStorageException {
         storage.registerIginxChangeHook(
                 (id, iginx) -> {
@@ -216,14 +148,9 @@ public class DefaultMetaManager implements IMetaManager {
         for (IginxMeta iginx : storage.loadIginx().values()) {
             cache.addIginx(iginx);
         }
-        IginxMeta iginx =
-                new IginxMeta(
-                        0L,
-                        ConfigDescriptor.getInstance().getConfig().getIp(),
-                        ConfigDescriptor.getInstance().getConfig().getPort(),
-                        null);
-        id = storage.registerIginx(iginx);
-        SnowFlakeUtils.init(id);
+        IginxMeta iginx = new IginxMeta(0L, config.getIp(), config.getPort(), null);
+        iginxId = storage.registerIginx(iginx);
+        SnowFlakeUtils.init(iginxId);
     }
 
     private void initStorageEngine() throws MetaStorageException {
@@ -259,7 +186,7 @@ public class DefaultMetaManager implements IMetaManager {
                     if (storageUnit == null) {
                         return;
                     }
-                    if (storageUnit.getCreatedBy() == DefaultMetaManager.this.id) { // 本地创建的
+                    if (storageUnit.getCreatedBy() == DefaultMetaManager.this.iginxId) { // 本地创建的
                         return;
                     }
                     if (storageUnit.isInitialStorageUnit()) { // 初始分片不通过异步事件更新
@@ -275,9 +202,8 @@ public class DefaultMetaManager implements IMetaManager {
                                     cache.getStorageUnit(storageUnit.getMasterId());
                             if (masterStorageUnitMeta == null) { // 子节点先于主节点加入系统中，不应该发生，报错
                                 logger.error(
-                                        "unexpected storage unit "
-                                                + storageUnit.toString()
-                                                + ", because it does not has a master storage unit");
+                                        "unexpected storage unit {}, because it does not has a master storage unit",
+                                        storageUnit);
                             } else {
                                 masterStorageUnitMeta.addReplica(storageUnit);
                             }
@@ -318,10 +244,10 @@ public class DefaultMetaManager implements IMetaManager {
         storage.registerFragmentChangeHook(
                 (create, fragment) -> {
                     if (fragment == null) return;
-                    if (create && fragment.getCreatedBy() == DefaultMetaManager.this.id) {
+                    if (create && fragment.getCreatedBy() == DefaultMetaManager.this.iginxId) {
                         return;
                     }
-                    if (!create && fragment.getUpdatedBy() == DefaultMetaManager.this.id) {
+                    if (!create && fragment.getUpdatedBy() == DefaultMetaManager.this.iginxId) {
                         return;
                     }
                     if (fragment.isInitialFragment()) { // 初始分片不通过异步事件更新
@@ -413,6 +339,81 @@ public class DefaultMetaManager implements IMetaManager {
         for (TransformTaskMeta task : storage.loadTransformTask()) {
             cache.addOrUpdateTransformTask(task);
         }
+    }
+
+    private void initMaxActiveEndKeyStatistics() throws MetaStorageException {
+        storage.registerMaxActiveEndKeyStatisticsChangeHook(
+                (endKey) -> {
+                    if (endKey <= 0L) {
+                        return;
+                    }
+                    updateMaxActiveEndKey(endKey);
+                    int updatedCounter = maxActiveEndKeyStatisticsCounter.incrementAndGet();
+                    logger.info(
+                            "iginx node {} increment max active end time statistics counter {}",
+                            this.iginxId,
+                            updatedCounter);
+                });
+    }
+
+    private void initReshardStatus() throws MetaStorageException {
+        storage.registerReshardStatusHook(
+                status -> {
+                    try {
+                        reshardStatus = status;
+                        if (reshardStatus.equals(EXECUTING)) {
+                            storage.lockMaxActiveEndKeyStatistics();
+                            storage.addOrUpdateMaxActiveEndKeyStatistics(maxActiveEndKey.get());
+                            storage.releaseMaxActiveEndKeyStatistics();
+
+                            storage.lockReshardCounter();
+                            storage.incrementReshardCounter();
+                            storage.releaseReshardCounter();
+                        }
+                        if (reshardStatus.equals(NON_RESHARDING)) {
+                            if (isProposer) {
+                                logger.info("iginx node {}(proposer) finish to reshard", iginxId);
+                            } else {
+                                logger.info("iginx node {} finish to reshard", iginxId);
+                            }
+
+                            isProposer = false;
+                            maxActiveEndKeyStatisticsCounter.set(0);
+                        }
+                    } catch (MetaStorageException e) {
+                        logger.error("encounter error when switching reshard status: ", e);
+                    }
+                });
+        storage.lockReshardStatus();
+        storage.removeReshardStatus();
+        storage.releaseReshardStatus();
+    }
+
+    private void initReshardCounter() throws MetaStorageException {
+        storage.registerReshardCounterChangeHook(
+                counter -> {
+                    try {
+                        if (counter <= 0) {
+                            return;
+                        }
+                        if (isProposer && counter == getIginxList().size() - 1) {
+                            storage.lockReshardCounter();
+                            storage.resetReshardCounter();
+                            storage.releaseReshardCounter();
+
+                            if (reshardStatus == EXECUTING) {
+                                storage.lockReshardStatus();
+                                storage.updateReshardStatus(NON_RESHARDING);
+                                storage.releaseReshardStatus();
+                            }
+                        }
+                    } catch (MetaStorageException e) {
+                        logger.error("encounter error when updating reshard counter: ", e);
+                    }
+                });
+        storage.lockReshardCounter();
+        storage.removeReshardCounter();
+        storage.releaseReshardCounter();
     }
 
     @Override
@@ -509,7 +510,7 @@ public class DefaultMetaManager implements IMetaManager {
 
     @Override
     public long getIginxId() {
-        return id;
+        return iginxId;
     }
 
     @Override
@@ -721,7 +722,7 @@ public class DefaultMetaManager implements IMetaManager {
 
             Map<String, StorageUnitMeta> fakeIdToStorageUnit = new HashMap<>(); // 假名翻译工具
             for (StorageUnitMeta masterStorageUnit : storageUnits) {
-                masterStorageUnit.setCreatedBy(id);
+                masterStorageUnit.setCreatedBy(iginxId);
                 String fakeName = masterStorageUnit.getId();
                 String actualName = storage.addStorageUnit();
                 StorageUnitMeta actualMasterStorageUnit =
@@ -733,7 +734,7 @@ public class DefaultMetaManager implements IMetaManager {
                 storage.updateStorageUnit(actualMasterStorageUnit);
                 fakeIdToStorageUnit.put(fakeName, actualMasterStorageUnit);
                 for (StorageUnitMeta slaveStorageUnit : masterStorageUnit.getReplicas()) {
-                    slaveStorageUnit.setCreatedBy(id);
+                    slaveStorageUnit.setCreatedBy(iginxId);
                     String slaveFakeName = slaveStorageUnit.getId();
                     String slaveActualName = storage.addStorageUnit();
                     StorageUnitMeta actualSlaveStorageUnit =
@@ -754,13 +755,13 @@ public class DefaultMetaManager implements IMetaManager {
                         originalFragmentMeta.endFragmentMeta(
                                 fragments.get(0).getKeyInterval().getStartKey());
                 // 在更新分片时，先更新本地
-                fragmentMeta.setUpdatedBy(id);
+                fragmentMeta.setUpdatedBy(iginxId);
                 cache.updateFragment(fragmentMeta);
                 storage.updateFragment(fragmentMeta);
             }
 
             for (FragmentMeta fragmentMeta : fragments) {
-                fragmentMeta.setCreatedBy(id);
+                fragmentMeta.setCreatedBy(iginxId);
                 fragmentMeta.setInitialFragment(false);
                 StorageUnitMeta storageUnit =
                         fakeIdToStorageUnit.get(fragmentMeta.getFakeStorageUnitId());
@@ -795,7 +796,7 @@ public class DefaultMetaManager implements IMetaManager {
 
             // 更新du
             logger.info("update du");
-            toAddStorageUnit.setCreatedBy(id);
+            toAddStorageUnit.setCreatedBy(iginxId);
             String actualName = storage.addStorageUnit();
             StorageUnitMeta actualMasterStorageUnit =
                     toAddStorageUnit.renameStorageUnitMeta(actualName, actualName);
@@ -805,7 +806,7 @@ public class DefaultMetaManager implements IMetaManager {
             }
             storage.updateStorageUnit(actualMasterStorageUnit);
             for (StorageUnitMeta slaveStorageUnit : toAddStorageUnit.getReplicas()) {
-                slaveStorageUnit.setCreatedBy(id);
+                slaveStorageUnit.setCreatedBy(iginxId);
                 String slaveActualName = storage.addStorageUnit();
                 StorageUnitMeta actualSlaveStorageUnit =
                         slaveStorageUnit.renameStorageUnitMeta(slaveActualName, actualName);
@@ -821,11 +822,11 @@ public class DefaultMetaManager implements IMetaManager {
             cache.deleteFragmentByColumnsInterval(fragment.getColumnsRange(), fragment);
             fragment = fragment.endFragmentMeta(toAddFragment.getKeyInterval().getStartKey());
             cache.addFragment(fragment);
-            fragment.setUpdatedBy(id);
+            fragment.setUpdatedBy(iginxId);
             storage.updateFragment(fragment);
 
             // 更新新分片
-            toAddFragment.setCreatedBy(id);
+            toAddFragment.setCreatedBy(iginxId);
             toAddFragment.setInitialFragment(false);
             if (toAddStorageUnit.isMaster()) {
                 toAddFragment.setMasterStorageUnit(actualMasterStorageUnit);
@@ -1068,7 +1069,7 @@ public class DefaultMetaManager implements IMetaManager {
             // 确实没有人创建过，以我为准
             Map<String, StorageUnitMeta> fakeIdToStorageUnit = new HashMap<>(); // 假名翻译工具
             for (StorageUnitMeta masterStorageUnit : storageUnits) {
-                masterStorageUnit.setCreatedBy(id);
+                masterStorageUnit.setCreatedBy(iginxId);
                 String fakeName = masterStorageUnit.getId();
                 String actualName = storage.addStorageUnit();
                 StorageUnitMeta actualMasterStorageUnit =
@@ -1076,7 +1077,7 @@ public class DefaultMetaManager implements IMetaManager {
                 storage.updateStorageUnit(actualMasterStorageUnit);
                 fakeIdToStorageUnit.put(fakeName, actualMasterStorageUnit);
                 for (StorageUnitMeta slaveStorageUnit : masterStorageUnit.getReplicas()) {
-                    slaveStorageUnit.setCreatedBy(id);
+                    slaveStorageUnit.setCreatedBy(iginxId);
                     String slaveFakeName = slaveStorageUnit.getId();
                     String slaveActualName = storage.addStorageUnit();
                     StorageUnitMeta actualSlaveStorageUnit =
@@ -1088,7 +1089,7 @@ public class DefaultMetaManager implements IMetaManager {
             }
             initialFragments.sort(Comparator.comparingLong(o -> o.getKeyInterval().getStartKey()));
             for (FragmentMeta fragmentMeta : initialFragments) {
-                fragmentMeta.setCreatedBy(id);
+                fragmentMeta.setCreatedBy(iginxId);
                 StorageUnitMeta storageUnit =
                         fakeIdToStorageUnit.get(fragmentMeta.getFakeStorageUnitId());
                 if (storageUnit.isMaster()) {
@@ -1150,8 +1151,7 @@ public class DefaultMetaManager implements IMetaManager {
                         .stream()
                         .map(StorageEngineMeta::getId)
                         .collect(Collectors.toList());
-        if (storageEngineIdList.size()
-                <= 1 + ConfigDescriptor.getInstance().getConfig().getReplicaNum()) {
+        if (storageEngineIdList.size() <= 1 + config.getReplicaNum()) {
             return storageEngineIdList;
         }
         Random random = new Random();
@@ -1161,8 +1161,7 @@ public class DefaultMetaManager implements IMetaManager {
             storageEngineIdList.set(next, storageEngineIdList.get(i));
             storageEngineIdList.set(i, value);
         }
-        return storageEngineIdList.subList(
-                0, 1 + ConfigDescriptor.getInstance().getConfig().getReplicaNum());
+        return storageEngineIdList.subList(0, 1 + config.getReplicaNum());
     }
 
     @Override
@@ -1221,8 +1220,7 @@ public class DefaultMetaManager implements IMetaManager {
 
     private List<StorageEngineMeta> resolveStorageEngineFromConf() {
         List<StorageEngineMeta> storageEngineMetaList = new ArrayList<>();
-        String[] storageEngineStrings =
-                ConfigDescriptor.getInstance().getConfig().getStorageEngineList().split(",");
+        String[] storageEngineStrings = config.getStorageEngineList().split(",");
         for (int i = 0; i < storageEngineStrings.length; i++) {
             if (storageEngineStrings[i].length() == 0) {
                 continue;
@@ -1268,7 +1266,7 @@ public class DefaultMetaManager implements IMetaManager {
                             readOnly,
                             extraParams,
                             storageEngine,
-                            id);
+                            iginxId);
             if (hasData) {
                 StorageUnitMeta dummyStorageUnit =
                         new StorageUnitMeta(StorageUnitMeta.generateDummyStorageUnitID(i), i);
@@ -1295,8 +1293,8 @@ public class DefaultMetaManager implements IMetaManager {
     }
 
     private UserMeta resolveUserFromConf() {
-        String username = ConfigDescriptor.getInstance().getConfig().getUsername();
-        String password = ConfigDescriptor.getInstance().getConfig().getPassword();
+        String username = config.getUsername();
+        String password = config.getPassword();
         UserType userType = UserType.Administrator;
         Set<AuthType> auths = new HashSet<>();
         auths.add(AuthType.Read);

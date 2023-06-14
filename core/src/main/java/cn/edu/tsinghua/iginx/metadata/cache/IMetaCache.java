@@ -19,6 +19,10 @@
 package cn.edu.tsinghua.iginx.metadata.cache;
 
 import cn.edu.tsinghua.iginx.metadata.entity.*;
+import cn.edu.tsinghua.iginx.metadata.statistics.ColumnStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.ColumnsIntervalStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.IginxStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.StorageEngineStatistics;
 import cn.edu.tsinghua.iginx.policy.simple.ColumnCalDO;
 import cn.edu.tsinghua.iginx.sql.statement.InsertStatement;
 import java.util.List;
@@ -143,4 +147,52 @@ public interface IMetaCache {
     TransformTaskMeta getTransformTask(String name);
 
     List<TransformTaskMeta> getTransformTasks();
+
+    /**
+     * @param id iginx id
+     * @param statisticsMap 存储引擎统计信息
+     */
+    void addOrUpdateActiveIginxStatistics(
+            long id, Map<Long, StorageEngineStatistics> statisticsMap);
+
+    Map<Long, IginxStatistics> getActiveIginxStatistics();
+
+    void clearActiveIginxStatistics();
+
+    double getMinActiveIginxStatistics();
+
+    /** @param separators 分割点集合 */
+    void addOrUpdateActiveSeparatorSet(Set<String> separators);
+
+    Set<String> getActiveSeparatorSet();
+
+    void clearActiveSeparatorSet();
+
+    /** @param statisticsMap 存储引擎统计信息 */
+    void addOrUpdateActiveStorageEngineStatistics(Map<Long, StorageEngineStatistics> statisticsMap);
+
+    Map<Long, StorageEngineStatistics> getActiveStorageEngineStatistics();
+
+    void clearActiveStorageEngineStatistics();
+
+    /** @param statisticsMap 序列统计信息 */
+    void addOrUpdateActiveColumnStatistics(Map<String, ColumnStatistics> statisticsMap);
+
+    Map<String, ColumnStatistics> getActiveColumnStatistics();
+
+    void clearActiveColumnStatistics();
+
+    /** @param statisticsMap 序列区间统计信息 */
+    void addOrUpdateActiveColumnsIntervalStatistics(
+            Map<ColumnsInterval, ColumnsIntervalStatistics> statisticsMap);
+
+    Map<ColumnsInterval, ColumnsIntervalStatistics> getActiveColumnsIntervalStatistics();
+
+    void clearActiveColumnsIntervalStatistics();
+
+    Set<String> separateActiveColumnsStatisticsByHeat(
+            double heat, Map<String, ColumnStatistics> statisticsMap);
+
+    Map<ColumnsInterval, ColumnsIntervalStatistics> separateActiveColumnsStatisticsBySeparators(
+            Map<String, ColumnStatistics> statisticsMap, Set<String> separators);
 }

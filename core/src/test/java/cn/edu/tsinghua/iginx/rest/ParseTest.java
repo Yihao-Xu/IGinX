@@ -23,40 +23,40 @@ public class ParseTest {
     {
         "start_absolute" : 486,
         "end_relative": {
-            "value": "5",
-            "unit": "days"
+        "value": "5",
+        "unit": "days"
         },
         "metrics": [
-            {
-                "name": "rem.hero",
-                "tags": {
-                    "high": ["emi"],
-                    "name": ["lem", "blade"]
-                },
-                "aggregators": [
-                    {
-                        "name": "avg",
-                        "sampling": {
-                        "value": 2,
-                        "unit": "seconds"
-                        }
-                    },
-                    {
-                        "name": "dev",
-                        "sampling": {
-                          "value": 2,
-                          "unit": "seconds"
-                        },
-                        "return_type":"value"
-                    }
-                ]
-            },
-            {
-                "name": "archive_file_search"
-            }
+        {
+        "name": "rem.hero",
+        "tags": {
+        "high": ["emi"],
+        "name": ["lem", "blade"]
+        },
+        "aggregators": [
+        {
+        "name": "avg",
+        "sampling": {
+        "value": 2,
+        "unit": "seconds"
+        }
+        },
+        {
+        "name": "dev",
+        "sampling": {
+        "value": 2,
+        "unit": "seconds"
+        },
+        "return_type":"value"
+        }
+        ]
+        },
+        {
+        "name": "archive_file_search"
+        }
         ]
     }
-     */
+    */
     private String queryJson =
             "{\n"
                     + "\t\"start_absolute\" : 486,\n"

@@ -411,13 +411,13 @@ public class ZooKeeperMetaStorage implements IMetaStorage {
             this.client.setData().forPath(nodeName, JsonUtils.toJson(iginxMeta));
             return id;
         } catch (Exception e) {
-            throw new MetaStorageException("get error when load iginx", e);
+            throw new MetaStorageException("get error when loading iginx", e);
         } finally {
             try {
                 mutex.release();
             } catch (Exception e) {
                 throw new MetaStorageException(
-                        "get error when release interprocess lock for " + IGINX_LOCK_NODE, e);
+                        "get error when releasing interprocess lock for " + IGINX_LOCK_NODE, e);
             }
         }
     }
@@ -1026,35 +1026,32 @@ public class ZooKeeperMetaStorage implements IMetaStorage {
                         .forPath(FRAGMENT_NODE_PREFIX + "/" + fragmentMeta.getColumnsRange());
             }
             // 删除不需要的统计数据
-            String requestWritePath = STATISTICS_FRAGMENT_REQUESTS_PREFIX_WRITE
-                    + "/"
-                    + fragmentMeta.getColumnsRange().toString()
-                    + "/"
-                    + fragmentMeta.getKeyInterval().toString();
+            String requestWritePath =
+                    STATISTICS_FRAGMENT_REQUESTS_PREFIX_WRITE
+                            + "/"
+                            + fragmentMeta.getColumnsRange().toString()
+                            + "/"
+                            + fragmentMeta.getKeyInterval().toString();
             if (this.client.checkExists().forPath(requestWritePath) != null) {
-                this.client
-                        .delete()
-                        .forPath(requestWritePath);
+                this.client.delete().forPath(requestWritePath);
             }
-            String requestReadPath = STATISTICS_FRAGMENT_REQUESTS_PREFIX_READ
-                    + "/"
-                    + fragmentMeta.getColumnsRange().toString()
-                    + "/"
-                    + fragmentMeta.getKeyInterval().toString();
+            String requestReadPath =
+                    STATISTICS_FRAGMENT_REQUESTS_PREFIX_READ
+                            + "/"
+                            + fragmentMeta.getColumnsRange().toString()
+                            + "/"
+                            + fragmentMeta.getKeyInterval().toString();
             if (this.client.checkExists().forPath(requestReadPath) != null) {
-                this.client
-                        .delete()
-                        .forPath(requestReadPath);
+                this.client.delete().forPath(requestReadPath);
             }
-            String pointsPath = STATISTICS_FRAGMENT_POINTS_PREFIX
-                    + "/"
-                    + fragmentMeta.getColumnsRange().toString()
-                    + "/"
-                    + fragmentMeta.getKeyInterval().toString();
+            String pointsPath =
+                    STATISTICS_FRAGMENT_POINTS_PREFIX
+                            + "/"
+                            + fragmentMeta.getColumnsRange().toString()
+                            + "/"
+                            + fragmentMeta.getKeyInterval().toString();
             if (this.client.checkExists().forPath(pointsPath) != null) {
-                this.client
-                        .delete()
-                        .forPath(pointsPath);
+                this.client.delete().forPath(pointsPath);
             }
         } catch (Exception e) {
             throw new MetaStorageException("get error when remove fragment", e);
