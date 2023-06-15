@@ -192,6 +192,8 @@ public class Config {
 
   private boolean isLocalParquetStorage = true;
 
+  private int parallelFilterThreshold = 10000;
+
   private int parallelGroupByRowsThreshold = 10000;
 
   private int parallelApplyFuncGroupsThreshold = 1000;
@@ -812,6 +814,14 @@ public class Config {
 
   public void setLocalParquetStorage(boolean localParquetStorage) {
     isLocalParquetStorage = localParquetStorage;
+  }
+
+  public int getParallelFilterThreshold() {
+    return parallelFilterThreshold;
+  }
+
+  public void setParallelFilterThreshold(int parallelFilterThreshold) {
+    this.parallelFilterThreshold = parallelFilterThreshold;
   }
 
   public int getParallelGroupByRowsThreshold() {

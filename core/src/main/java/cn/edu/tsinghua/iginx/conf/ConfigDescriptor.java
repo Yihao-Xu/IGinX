@@ -207,6 +207,8 @@ public class ConfigDescriptor {
           Integer.parseInt(properties.getProperty("minThriftWorkerThreadNum", "20")));
       config.setMaxThriftWrokerThreadNum(
           Integer.parseInt(properties.getProperty("maxThriftWorkerThreadNum", "2147483647")));
+      config.setParallelFilterThreshold(
+          Integer.parseInt(properties.getProperty("parallelFilterThreshold", "10000")));
       config.setParallelGroupByRowsThreshold(
           Integer.parseInt(properties.getProperty("parallelGroupByRowsThreshold", "10000")));
       config.setParallelApplyFuncGroupsThreshold(
@@ -321,6 +323,8 @@ public class ConfigDescriptor {
         EnvUtils.loadEnv("expectedStorageUnitNum", config.getExpectedStorageUnitNum()));
     config.setLocalParquetStorage(
         EnvUtils.loadEnv("isLocalParquetStorage", config.isLocalParquetStorage()));
+    config.setParallelFilterThreshold(
+        EnvUtils.loadEnv("parallelFilterThreshold", config.getParallelFilterThreshold()));
     config.setParallelGroupByRowsThreshold(
         EnvUtils.loadEnv("parallelGroupByRowsThreshold", config.getParallelGroupByRowsThreshold()));
     config.setParallelApplyFuncGroupsThreshold(

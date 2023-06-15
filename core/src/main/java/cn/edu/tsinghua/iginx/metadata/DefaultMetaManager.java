@@ -99,7 +99,7 @@ public class DefaultMetaManager implements IMetaManager {
         storage = ETCDMetaStorage.getInstance();
         break;
       default:
-        logger.info("unknown meta storage {}", config.getMetaStorage());
+        logger.error("unknown meta storage {}", config.getMetaStorage());
         storage = null;
         System.exit(-1);
     }

@@ -528,7 +528,7 @@ public class RestAnnotationIT {
   4、测试重复性操作操作，查看结果正确性
   4.1、测试添加相同category，通过queryAnno以及queryAll两种方法测试
   4.2、测试不断更新相同结果的category，通过queryAnno以及queryAll两种方法测试
-   */
+  */
 
   public void testDuplicateAppendViaQueryAnno(DataType dataType) {
     try {
@@ -607,7 +607,7 @@ public class RestAnnotationIT {
 
   /*
   5、逻辑上重复的操作，如更新结果与原category相同，查看结果正确性
-   */
+  */
 
   public void testSameUpdateViaQueryAll(DataType dataType) {
     insertData(dataType);
@@ -637,7 +637,7 @@ public class RestAnnotationIT {
 
   /*
   6、复杂操作，插入，添加，更新，删除，每步操作查看结果正确性
-   */
+  */
 
   public void testAppend2ViaQueryAll(DataType dataType) {
     try {
