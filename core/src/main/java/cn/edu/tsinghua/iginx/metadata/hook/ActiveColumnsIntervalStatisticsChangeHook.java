@@ -6,5 +6,5 @@ import java.util.Map;
 
 public interface ActiveColumnsIntervalStatisticsChangeHook {
 
-    void onChange(Map<ColumnsInterval, ColumnsIntervalStatistics> statisticsMap);
+  void onChange(Map<ColumnsInterval, ColumnsIntervalStatistics> statisticsMap);
 }

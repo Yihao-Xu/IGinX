@@ -5,5 +5,5 @@ import java.util.Map;
 
 public interface ActiveStorageEngineStatisticsChangeHook {
 
-    void onChange(long id, Map<Long, StorageEngineStatistics> statisticsMap);
+  void onChange(long id, Map<Long, StorageEngineStatistics> statisticsMap);
 }

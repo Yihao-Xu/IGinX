@@ -4,5 +4,5 @@ import java.util.Set;
 
 public interface ActiveSeparatorSetChangeHook {
 
-    void onChange(long iginxId, Set<String> separators);
+  void onChange(long iginxId, Set<String> separators);
 }
