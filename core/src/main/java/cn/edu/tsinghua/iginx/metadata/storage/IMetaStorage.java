@@ -22,10 +22,13 @@ import cn.edu.tsinghua.iginx.exceptions.MetaStorageException;
 import cn.edu.tsinghua.iginx.metadata.cache.IMetaCache;
 import cn.edu.tsinghua.iginx.metadata.entity.*;
 import cn.edu.tsinghua.iginx.metadata.hook.*;
+import cn.edu.tsinghua.iginx.metadata.statistics.ColumnsIntervalStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.StorageEngineStatistics;
 import cn.edu.tsinghua.iginx.metadata.utils.ReshardStatus;
 import cn.edu.tsinghua.iginx.utils.Pair;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public interface IMetaStorage {
 
@@ -214,4 +217,47 @@ public interface IMetaStorage {
 
     void registerMaxActiveEndKeyStatisticsChangeHook(MaxActiveEndKeyStatisticsChangeHook hook)
             throws MetaStorageException;
+
+    // min iginx statistics
+    void lockMinActiveIginxStatistics() throws MetaStorageException;
+
+    void addOrUpdateMinActiveIginxStatistics(double heat) throws MetaStorageException;
+
+    void releaseMinActiveIginxStatistics() throws MetaStorageException;
+
+    void registerMinActiveIginxStatisticsChangeHook(MinActiveIginxStatisticsChangeHook hook)
+            throws MetaStorageException;
+
+    // separator set
+    void lockActiveSeparatorSet() throws MetaStorageException;
+
+    void addOrUpdateActiveSeparatorSet(long id, Set<String> separators) throws MetaStorageException;
+
+    void releaseActiveSeparatorSet() throws MetaStorageException;
+
+    void registerActiveSeparatorSetChangeHook(ActiveSeparatorSetChangeHook hook);
+
+    // storage engine statistics
+    void lockActiveStorageEngineStatistics() throws MetaStorageException;
+
+    void addOrUpdateActiveStorageEngineStatistics(
+            long id, Map<Long, StorageEngineStatistics> activeStorageEngineStatistics)
+            throws MetaStorageException;
+
+    void releaseActiveStorageEngineStatistics() throws MetaStorageException;
+
+    void registerActiveStorageEngineStatisticsChangeHook(
+            ActiveStorageEngineStatisticsChangeHook hook);
+
+    // columns interval statistics
+    void lockActiveColumnsIntervalStatistics() throws MetaStorageException;
+
+    void addOrUpdateActiveColumnsIntervalStatistics(
+            long id, Map<ColumnsInterval, ColumnsIntervalStatistics> statisticsMap)
+            throws MetaStorageException;
+
+    void releaseActiveColumnsIntervalStatistics() throws MetaStorageException;
+
+    void registerActiveColumnsIntervalStatisticsChangeHook(
+            ActiveColumnsIntervalStatisticsChangeHook hook);
 }

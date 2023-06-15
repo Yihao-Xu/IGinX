@@ -25,6 +25,8 @@ import cn.edu.tsinghua.iginx.exceptions.MetaStorageException;
 import cn.edu.tsinghua.iginx.metadata.cache.IMetaCache;
 import cn.edu.tsinghua.iginx.metadata.entity.*;
 import cn.edu.tsinghua.iginx.metadata.hook.*;
+import cn.edu.tsinghua.iginx.metadata.statistics.ColumnsIntervalStatistics;
+import cn.edu.tsinghua.iginx.metadata.statistics.StorageEngineStatistics;
 import cn.edu.tsinghua.iginx.metadata.storage.IMetaStorage;
 import cn.edu.tsinghua.iginx.metadata.utils.ReshardStatus;
 import cn.edu.tsinghua.iginx.utils.JsonUtils;
@@ -2596,6 +2598,62 @@ public class ZooKeeperMetaStorage implements IMetaStorage {
             MaxActiveEndKeyStatisticsChangeHook hook) throws MetaStorageException {
         this.maxActiveEndKeyStatisticsChangeHook = hook;
     }
+
+    @Override
+    public void lockMinActiveIginxStatistics() throws MetaStorageException {}
+
+    @Override
+    public void addOrUpdateMinActiveIginxStatistics(double heat) throws MetaStorageException {}
+
+    @Override
+    public void releaseMinActiveIginxStatistics() throws MetaStorageException {}
+
+    @Override
+    public void registerMinActiveIginxStatisticsChangeHook(MinActiveIginxStatisticsChangeHook hook)
+            throws MetaStorageException {}
+
+    @Override
+    public void lockActiveSeparatorSet() throws MetaStorageException {}
+
+    @Override
+    public void addOrUpdateActiveSeparatorSet(long id, Set<String> separators)
+            throws MetaStorageException {}
+
+    @Override
+    public void releaseActiveSeparatorSet() throws MetaStorageException {}
+
+    @Override
+    public void registerActiveSeparatorSetChangeHook(ActiveSeparatorSetChangeHook hook) {}
+
+    @Override
+    public void lockActiveStorageEngineStatistics() throws MetaStorageException {}
+
+    @Override
+    public void addOrUpdateActiveStorageEngineStatistics(
+            long id, Map<Long, StorageEngineStatistics> activeStorageEngineStatistics)
+            throws MetaStorageException {}
+
+    @Override
+    public void releaseActiveStorageEngineStatistics() throws MetaStorageException {}
+
+    @Override
+    public void registerActiveStorageEngineStatisticsChangeHook(
+            ActiveStorageEngineStatisticsChangeHook hook) {}
+
+    @Override
+    public void lockActiveColumnsIntervalStatistics() throws MetaStorageException {}
+
+    @Override
+    public void addOrUpdateActiveColumnsIntervalStatistics(
+            long id, Map<ColumnsInterval, ColumnsIntervalStatistics> statisticsMap)
+            throws MetaStorageException {}
+
+    @Override
+    public void releaseActiveColumnsIntervalStatistics() throws MetaStorageException {}
+
+    @Override
+    public void registerActiveColumnsIntervalStatisticsChangeHook(
+            ActiveColumnsIntervalStatisticsChangeHook hook) {}
 
     private void registerReshardCounterListener() throws Exception {
         this.reshardCounterCache = new TreeCache(this.client, RESHARD_COUNTER_NODE_PREFIX);
