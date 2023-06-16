@@ -24,6 +24,7 @@ import static cn.edu.tsinghua.iginx.postgresql.tools.HashUtils.toHash;
 import static cn.edu.tsinghua.iginx.postgresql.tools.TagKVUtils.splitFullName;
 import static cn.edu.tsinghua.iginx.postgresql.tools.TagKVUtils.toFullName;
 
+import cn.edu.tsinghua.iginx.engine.logical.utils.ExprUtils;
 import cn.edu.tsinghua.iginx.engine.physical.exception.PhysicalException;
 import cn.edu.tsinghua.iginx.engine.physical.exception.PhysicalTaskExecuteFailureException;
 import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
@@ -40,10 +41,7 @@ import cn.edu.tsinghua.iginx.engine.shared.data.write.ColumnDataView;
 import cn.edu.tsinghua.iginx.engine.shared.data.write.DataView;
 import cn.edu.tsinghua.iginx.engine.shared.data.write.RowDataView;
 import cn.edu.tsinghua.iginx.engine.shared.operator.*;
-import cn.edu.tsinghua.iginx.engine.shared.operator.filter.AndFilter;
-import cn.edu.tsinghua.iginx.engine.shared.operator.filter.Filter;
-import cn.edu.tsinghua.iginx.engine.shared.operator.filter.KeyFilter;
-import cn.edu.tsinghua.iginx.engine.shared.operator.filter.Op;
+import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
 import cn.edu.tsinghua.iginx.engine.shared.operator.tag.TagFilter;
 import cn.edu.tsinghua.iginx.metadata.entity.*;
 import cn.edu.tsinghua.iginx.postgresql.query.entity.PostgreSQLQueryRowStream;
@@ -56,6 +54,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.postgresql.ds.PGConnectionPoolDataSource;
 import org.slf4j.Logger;
@@ -219,6 +218,41 @@ public class PostgreSQLStorage implements IStorage {
 
   @Override
   public TaskExecuteResult executeProject(Project project, DataArea dataArea) {
+    KeyInterval keyInterval = dataArea.getKeyInterval();
+    Filter filter =
+        new AndFilter(
+            Arrays.asList(
+                new KeyFilter(Op.GE, keyInterval.getStartKey()),
+                new KeyFilter(Op.L, keyInterval.getEndKey())));
+    return executeProjectWithFilter(project, filter, dataArea);
+  }
+
+  @Override
+  public TaskExecuteResult executeProjectDummy(Project project, DataArea dataArea) {
+    KeyInterval keyInterval = dataArea.getKeyInterval();
+    Filter filter =
+        new AndFilter(
+            Arrays.asList(
+                new KeyFilter(Op.GE, keyInterval.getStartKey()),
+                new KeyFilter(Op.L, keyInterval.getEndKey())));
+    return executeProjectDummyWithFilter(project, filter);
+  }
+
+  @Override
+  public boolean isSupportProjectWithSelect() {
+    return true;
+  }
+
+  @Override
+  public TaskExecuteResult executeProjectWithSelect(
+      Project project, Select select, DataArea dataArea) {
+    return executeProjectWithFilter(
+        project,
+        select.getFilter(),
+        dataArea);
+  }
+
+  private TaskExecuteResult executeProjectWithFilter(Project project, Filter filter, DataArea dataArea) {
     try {
       String databaseName = dataArea.getStorageUnit();
       Connection conn = getConnection(databaseName);
@@ -227,40 +261,17 @@ public class PostgreSQLStorage implements IStorage {
             new PhysicalTaskExecuteFailureException(
                 String.format("cannot connect to database %s", databaseName)));
       }
-      KeyInterval keyInterval = dataArea.getKeyInterval();
-      Filter filter =
-          new AndFilter(
-              Arrays.asList(
-                  new KeyFilter(Op.GE, keyInterval.getStartKey()),
-                  new KeyFilter(Op.L, keyInterval.getEndKey())));
 
       List<String> databaseNameList = new ArrayList<>();
       List<ResultSet> resultSets = new ArrayList<>();
-      ResultSet rs;
       Statement stmt;
 
       Map<String, String> tableNameToColumnNames =
           splitAndMergeQueryPatterns(databaseName, conn, project.getPatterns());
-      for (Map.Entry<String, String> entry : tableNameToColumnNames.entrySet()) {
-        String tableName = entry.getKey();
-        String fullColumnNames = getFullColumnNames(entry.getValue());
-        String statement =
-            String.format(
-                QUERY_STATEMENT,
-                fullColumnNames,
-                getFullName(tableName),
-                FilterTransformer.toString(filter));
-        try {
-          stmt = conn.createStatement();
-          rs = stmt.executeQuery(statement);
-          logger.info("[Query] execute query: {}", statement);
-        } catch (SQLException e) {
-          logger.error("meet error when executing query {}: {}", statement, e.getMessage());
-          continue;
-        }
-        databaseNameList.add(databaseName);
-        resultSets.add(rs);
-      }
+
+      String statement = "";
+
+      filter = getFilter(filter, databaseNameList, resultSets, conn, databaseName, tableNameToColumnNames);
 
       RowStream rowStream =
           new ClearEmptyRowStreamWrapper(
@@ -275,19 +286,125 @@ public class PostgreSQLStorage implements IStorage {
     }
   }
 
-  @Override
-  public TaskExecuteResult executeProjectDummy(Project project, DataArea dataArea) {
-    try {
-      KeyInterval keyInterval = dataArea.getKeyInterval();
-      Filter filter =
-          new AndFilter(
-              Arrays.asList(
-                  new KeyFilter(Op.GE, keyInterval.getStartKey()),
-                  new KeyFilter(Op.L, keyInterval.getEndKey())));
+  private Filter generateWildCardsFilter(Filter filter, List<String> tableNames, List<List<String>> columnNamesList){
+    switch(filter.getType()){
+      case And:
+        List<Filter> andChildren = ((AndFilter) filter).getChildren();
+        for(Filter child : andChildren){
+          Filter newFilter = generateWildCardsFilter(child, tableNames, columnNamesList);
+          andChildren.set(andChildren.indexOf(child), newFilter);
+        }
+        return new AndFilter(andChildren);
+      case Or:
+        List<Filter> orChildren = ((OrFilter) filter).getChildren();
+        for(Filter child : orChildren){
+          Filter newFilter = generateWildCardsFilter(child, tableNames, columnNamesList);
+          orChildren.set(orChildren.indexOf(child), newFilter);
+        }
+        return new OrFilter(orChildren);
+      case Not:
+        Filter notChild = ((NotFilter) filter).getChild();
+        Filter newFilter = generateWildCardsFilter(notChild, tableNames, columnNamesList);
+        return new NotFilter(newFilter);
+      case Value:
+        String path = ((ValueFilter) filter).getPath();
+        if(path.contains("*")){
+            List<String> matchedPath = getMatchedPath(path, tableNames, columnNamesList);
+            if (matchedPath.size() == 0){
+                return new BoolFilter(true);
+            }
+            else if (matchedPath.size() == 1){
+                return new ValueFilter(matchedPath.get(0), ((ValueFilter) filter).getOp(), ((ValueFilter) filter).getValue());
+            }
+            else{
+                List<Filter> andValueChildren = new ArrayList<>();
+                for (String matched : matchedPath){
+                    andValueChildren.add(new ValueFilter(matched, ((ValueFilter) filter).getOp(), ((ValueFilter) filter).getValue()));
+                }
+                return new AndFilter(andValueChildren);
+            }
+        }
 
+        return filter;
+      case Path:
+        String pathA = ((PathFilter) filter).getPathA();
+        String pathB = ((PathFilter) filter).getPathB();
+        if(pathA.contains("*")){
+            List<String> matchedPath = getMatchedPath(pathA, tableNames, columnNamesList);
+            if (matchedPath.size() == 0){
+                return new BoolFilter(true);
+            }
+            else if (matchedPath.size() == 1){
+                return new PathFilter(matchedPath.get(0), ((PathFilter) filter).getOp(), ((PathFilter) filter).getPathB());
+            }
+            else{
+                List<Filter> andPathChildren = new ArrayList<>();
+                for (String matched : matchedPath){
+                    andPathChildren.add(new PathFilter(matched, ((PathFilter) filter).getOp(), ((PathFilter) filter).getPathB()));
+                }
+                filter = new AndFilter(andPathChildren);
+            }
+        }
+
+        if(pathB.contains("*")){
+            if(filter.getType() != FilterType.And){
+              return generateWildCardsFilter(filter, tableNames, columnNamesList);
+            }
+
+            List<String> matchedPath = getMatchedPath(pathB, tableNames, columnNamesList);
+            if (matchedPath.size() == 0){
+                return new BoolFilter(true);
+            }
+            else if (matchedPath.size() == 1){
+                return new PathFilter(((PathFilter) filter).getPathA(), ((PathFilter) filter).getOp(), matchedPath.get(0));
+            }
+            else{
+                List<Filter> andPathChildren = new ArrayList<>();
+                for (String matched : matchedPath){
+                    andPathChildren.add(new PathFilter(((PathFilter) filter).getPathA(), ((PathFilter) filter).getOp(), matched));
+                }
+                return new AndFilter(andPathChildren);
+            }
+        }
+
+        return filter;
+
+      case Bool:
+      case Key:
+      default:
+        break;
+    }
+    return filter;
+  }
+
+  private List<String> getMatchedPath(String path, List<String> tableNames, List<List<String>> columnNamesList){
+    List<String> matchedPath = new ArrayList<>();
+    path = path.replace(".", "\\.");
+    path = path.replace("*", ".*");
+    Pattern pattern = Pattern.compile("^" + path + "$");
+    for (int i = 0; i < tableNames.size(); i++){
+      List<String> columnNames = columnNamesList.get(i);
+      for (String columnName : columnNames){
+        Matcher matcher = pattern.matcher(columnName.replace(Character.toString(POSTGRESQL_SEPARATOR), Character.toString(IGINX_SEPARATOR)));
+        if (matcher.find()){
+          matchedPath.add(columnName);
+        }
+      }
+    }
+    return matchedPath;
+  }
+
+  @Override
+  public TaskExecuteResult executeProjectDummyWithSelect(
+      Project project, Select select, DataArea dataArea) {
+    Filter filter = select.getFilter();
+    return executeProjectDummyWithFilter(project, filter);
+  }
+
+  private TaskExecuteResult executeProjectDummyWithFilter(Project project, Filter filter) {
+    try {
       List<String> databaseNameList = new ArrayList<>();
       List<ResultSet> resultSets = new ArrayList<>();
-      ResultSet rs;
       Connection conn = null;
       Statement stmt;
 
@@ -299,27 +416,12 @@ public class PostgreSQLStorage implements IStorage {
         if (conn == null) {
           continue;
         }
-        for (Map.Entry<String, String> entry : splitEntry.getValue().entrySet()) {
-          String tableName = entry.getKey();
-          String fullColumnNames = getFullColumnNames(entry.getValue());
-          String statement =
-              String.format(
-                  CONCAT_QUERY_STATEMENT_WITHOUT_WHERE_CLAUSE,
-                  fullColumnNames,
-                  fullColumnNames,
-                  getFullName(tableName));
 
-          try {
-            stmt = conn.createStatement();
-            rs = stmt.executeQuery(statement);
-            logger.info("[Query] execute query: {}", statement);
-          } catch (SQLException e) {
-            logger.error("meet error when executing query {}: {}", statement, e.getMessage());
-            continue;
-          }
-          databaseNameList.add(databaseName);
-          resultSets.add(rs);
-        }
+        String statement = "";
+
+        Map<String, String> tableNameToColumnNames = splitEntry.getValue();
+
+        filter = getFilter(filter, databaseNameList, resultSets, conn, databaseName, tableNameToColumnNames);
       }
 
       RowStream rowStream =
@@ -337,21 +439,106 @@ public class PostgreSQLStorage implements IStorage {
     }
   }
 
-  @Override
-  public boolean isSupportProjectWithSelect() {
-    return false;
-  }
 
-  @Override
-  public TaskExecuteResult executeProjectWithSelect(
-      Project project, Select select, DataArea dataArea) {
-    return null;
-  }
+  private Filter getFilter(Filter filter, List<String> databaseNameList, List<ResultSet> resultSets, Connection conn, String databaseName, Map<String, String> tableNameToColumnNames) {
+    String statement;
+    Statement stmt;
+    if (!filter.toString().contains("*")){
+      for (Map.Entry<String, String> entry : tableNameToColumnNames.entrySet()) {
+        String tableName = entry.getKey();
+        String fullColumnNames = getFullColumnNames(entry.getValue());
+        List<String> columnNames = Arrays.asList(entry.getValue().split(", "));
+        statement =
+                String.format(
+                        QUERY_STATEMENT,
+                        fullColumnNames,
+                        getFullName(tableName),
+                        FilterTransformer.toString(filter));
 
-  @Override
-  public TaskExecuteResult executeProjectDummyWithSelect(
-      Project project, Select select, DataArea dataArea) {
-    return null;
+        ResultSet rs = null;
+        try {
+          stmt = conn.createStatement();
+          rs = stmt.executeQuery(statement);
+          logger.info("[Query] execute query: {}", statement);
+        } catch (SQLException e) {
+          logger.error("meet error when executing query {}: {}", statement, e.getMessage());
+          continue;
+        }
+        if (rs != null) {
+          databaseNameList.add(databaseName);
+          resultSets.add(rs);
+        }
+      }
+    }
+    //table中带有了通配符，将所有table都join到一起进行查询，以便输入filter.
+    else if(!tableNameToColumnNames.isEmpty()){
+      List<String> tableNames = new ArrayList<>();
+      List<List<String>> columnNamesList = new ArrayList<>();
+      for (Map.Entry<String, String> entry : tableNameToColumnNames.entrySet()) {
+        String tableName = entry.getKey();
+        tableNames.add(tableName);
+        List<String> columnNames = new ArrayList<>(Arrays.asList(entry.getValue().split(", ")));
+        // 将columnNames中的列名加上tableName前缀
+        columnNames.replaceAll(s -> tableName + IGINX_SEPARATOR + s);
+        columnNamesList.add(columnNames);
+      }
+
+      StringBuilder fullColumnNames = new StringBuilder();
+      fullColumnNames.append(tableNames.get(0)).append(IGINX_SEPARATOR).append(KEY_NAME);
+      fullColumnNames.append(", ");
+      for (List<String> columnNames : columnNamesList){
+        for (String columnName : columnNames) {
+          fullColumnNames.append(columnName).append(", ");
+        }
+      }
+      fullColumnNames.delete(fullColumnNames.length() - 2, fullColumnNames.length());
+
+      // table之间用FULL OUTER JOIN ON table1.⺅= table2.⺅ 连接，超过2个table的情况下，需要多次嵌套join
+      StringBuilder fullTableName = new StringBuilder();
+      fullTableName.append(tableNames.get(0));
+      for (int i = 1; i < tableNames.size(); i++){
+        fullTableName.insert(0, "(");
+        fullTableName.append(" FULL OUTER JOIN ").append(tableNames.get(i)).append(" ON ");
+        for(int j = 0; j < i; j++){
+          fullTableName.append(tableNames.get(i) + IGINX_SEPARATOR + KEY_NAME)
+                  .append(" = ")
+                  .append(tableNames.get(j))
+                  .append(IGINX_SEPARATOR)
+                  .append(KEY_NAME);
+          if (j != i - 1){
+            fullTableName.append(" AND ");
+          }
+        }
+        fullTableName.append(")");
+      }
+
+      // 对通配符做处理，将通配符替换成对应的列名
+      if (FilterTransformer.toString(filter).contains("*")){
+        filter = generateWildCardsFilter(filter, tableNames, columnNamesList);
+        filter = ExprUtils.mergeTrue(filter);
+      }
+
+      statement = String.format(
+              QUERY_STATEMENT_WITH_JOIN,
+              fullColumnNames,
+              fullTableName,
+              FilterTransformer.toString(filter),
+              tableNames.get(0) + IGINX_SEPARATOR + KEY_NAME);
+
+      ResultSet rs = null;
+      try {
+        stmt = conn.createStatement();
+        rs = stmt.executeQuery(statement);
+        logger.info("[Query] execute query: {}", statement);
+      } catch (SQLException e) {
+        logger.error("meet error when executing query {}: {}", statement, e.getMessage());
+      }
+      if (rs != null) {
+        databaseNameList.add(databaseName);
+        resultSets.add(rs);
+      }
+    }
+    return filter;
   }
 
   @Override
@@ -612,7 +799,17 @@ public class PostgreSQLStorage implements IStorage {
           continue;
         }
         if (tableNameToColumnNames.containsKey(tableName)) {
-          columnNames = tableNameToColumnNames.get(tableName) + ", " + columnNames;
+          // 此处需要去重
+          List<String> columnNamesList =
+              new ArrayList<>(Arrays.asList(tableNameToColumnNames.get(tableName).split(", ")));
+          List<String> newColumnNamesList = new ArrayList<>(Arrays.asList(columnNames.split(", ")));
+          for(String newColumnName : newColumnNamesList) {
+            if(!columnNamesList.contains(newColumnName)) {
+              columnNamesList.add(newColumnName);
+            }
+          }
+
+          columnNames = String.join(", ", columnNamesList);
         }
         tableNameToColumnNames.put(tableName, columnNames);
       }

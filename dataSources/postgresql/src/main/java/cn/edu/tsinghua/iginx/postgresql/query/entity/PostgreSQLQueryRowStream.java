@@ -50,6 +50,8 @@ public class PostgreSQLQueryRowStream implements RowStream {
 
   private boolean hasCachedRow;
 
+  private List<Boolean> resultSetHasColumnWithTheSameName;
+
   public PostgreSQLQueryRowStream(
       List<String> databaseNameList,
       List<ResultSet> resultSets,
@@ -72,14 +74,21 @@ public class PostgreSQLQueryRowStream implements RowStream {
     List<Field> fields = new ArrayList<>();
     this.resultSetSizes = new int[resultSets.size()];
     this.fieldToColumnName = new HashMap<>();
+    this.resultSetHasColumnWithTheSameName = new ArrayList<>();
 
     for (int i = 0; i < resultSets.size(); i++) {
       ResultSetMetaData resultSetMetaData = resultSets.get(i).getMetaData();
+
+      Set<String> columnNameSet = new HashSet<>(); // 用于检查该resultSet中是否有同名的column
+
       int cnt = 0;
       for (int j = 1; j <= resultSetMetaData.getColumnCount(); j++) {
         String tableName = resultSetMetaData.getTableName(j);
         String columnName = resultSetMetaData.getColumnName(j);
         String typeName = resultSetMetaData.getColumnTypeName(j);
+
+        columnNameSet.add(columnName);
+
         if (j == 1 && columnName.equals(KEY_NAME)) {
           key = Field.KEY;
           continue;
@@ -115,6 +124,12 @@ public class PostgreSQLQueryRowStream implements RowStream {
         cnt++;
       }
       resultSetSizes[i] = cnt;
+
+      if (columnNameSet.size() != resultSetMetaData.getColumnCount()) {
+        resultSetHasColumnWithTheSameName.add(true);
+      } else {
+        resultSetHasColumnWithTheSameName.add(false);
+      }
     }
 
     this.header = new Header(key, fields);
@@ -209,8 +224,12 @@ public class PostgreSQLQueryRowStream implements RowStream {
           cachedKeys[i] = tempKey;
 
           for (int j = 0; j < resultSetSizes[i]; j++) {
-            Object value =
-                resultSet.getObject(fieldToColumnName.get(header.getField(startIndex + j)));
+            String columnName = fieldToColumnName.get(header.getField(startIndex + j));
+            String tableName = header.getField(startIndex + j).getName()
+                    .substring(0, header.getField(startIndex + j).getName().lastIndexOf(IGINX_SEPARATOR))
+                    .replace(IGINX_SEPARATOR, POSTGRESQL_SEPARATOR);
+
+            Object value = getResultSetObject(resultSet, columnName, tableName);
             if (header.getField(startIndex + j).getType() == DataType.BINARY && value != null) {
               tempValue = value.toString().getBytes();
             } else {
@@ -257,5 +276,31 @@ public class PostgreSQLQueryRowStream implements RowStream {
       cachedRow = null;
     }
     hasCachedRow = true;
+  }
+
+  /**
+   * 从结果集中获取指定column、指定table的值
+   * 不用resultSet.getObject(String columnLabel)是因为：在pg的filter下推中，可能会存在column名字相同，但是table不同的情况
+   * 这时候用resultSet.getObject(String columnLabel)就只能取到第一个column的值
+   */
+  private Object getResultSetObject(ResultSet resultSet, String columnName, String tableName){
+    try {
+//      if(!resultSetHasColumnWithTheSameName.get(resultSets.indexOf(resultSet))){
+        return resultSet.getObject(columnName);
+//      }
+
+//      ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
+//      for (int j = 0; j <= resultSetMetaData.getColumnCount(); j++) {
+//        String tempColumnName = resultSetMetaData.getColumnName(j);
+//        String tempTableName = resultSetMetaData.getTableName(j);
+//        if (tempColumnName.equals(columnName) && tempTableName.equals(tableName)) {
+//          return resultSet.getObject(j);
+//        }
+//      }
+    } catch (SQLException e) {
+      logger.error(e.getMessage());
+    }
+
+    return null;
   }
 }
