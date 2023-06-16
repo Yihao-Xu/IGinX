@@ -341,25 +341,7 @@ public class InfluxDBStorage implements IStorage {
         Map<String, String> bucketQueries = new HashMap<>();
         TagFilter tagFilter = project.getTagFilter();
         Filter filter = select.getFilter();
-        for (String pattern : project.getPatterns()) {
-            Pair<String, String> pair =
-                    SchemaTransformer.processPatternForQuery(pattern, tagFilter);
-            String bucketName = pair.k;
-            String query = pair.v;
-
-            if (client.getBucketsApi().findBucketByName(bucketName) == null) {
-                logger.warn("storage engine {} doesn't exist", bucketName);
-                continue;
-            }
-
-            String fullQuery = "";
-            if (bucketQueries.containsKey(bucketName)) {
-                fullQuery = bucketQueries.get(bucketName);
-                fullQuery += " or ";
-            }
-            fullQuery += query;
-            bucketQueries.put(bucketName, fullQuery);
-        }
+        getBucketQueriesForExecuteDummy(project, bucketQueries, tagFilter);
 
         long startTime = keyInterval.getStartKey();
         long endTime = keyInterval.getEndKey();
@@ -429,25 +411,7 @@ public class InfluxDBStorage implements IStorage {
         KeyInterval keyInterval = dataArea.getKeyInterval();
         Map<String, String> bucketQueries = new HashMap<>();
         TagFilter tagFilter = project.getTagFilter();
-        for (String pattern : project.getPatterns()) {
-            Pair<String, String> pair =
-                    SchemaTransformer.processPatternForQuery(pattern, tagFilter);
-            String bucketName = pair.k;
-            String query = pair.v;
-
-            if (client.getBucketsApi().findBucketByName(bucketName) == null) {
-                logger.warn("storage engine {} doesn't exist", bucketName);
-                continue;
-            }
-
-            String fullQuery = "";
-            if (bucketQueries.containsKey(bucketName)) {
-                fullQuery = bucketQueries.get(bucketName);
-                fullQuery += " or ";
-            }
-            fullQuery += query;
-            bucketQueries.put(bucketName, fullQuery);
-        }
+        getBucketQueriesForExecuteDummy(project, bucketQueries, tagFilter);
 
         long startKey = keyInterval.getStartKey();
         long endKey = keyInterval.getEndKey();
@@ -469,6 +433,44 @@ public class InfluxDBStorage implements IStorage {
         InfluxDBHistoryQueryRowStream rowStream =
                 new InfluxDBHistoryQueryRowStream(bucketQueryResults, project.getPatterns());
         return new TaskExecuteResult(rowStream);
+    }
+
+    private void getBucketQueriesForExecuteDummy(Project project, Map<String, String> bucketQueries, TagFilter tagFilter) {
+        for (String pattern : project.getPatterns()) {
+            Pair<String, String> pair =
+                    SchemaTransformer.processPatternForQuery(pattern, tagFilter);
+            String bucketName = pair.k;
+            String query = pair.v;
+            List<String> bucketNameList = new ArrayList<>();
+
+
+            if (bucketName.equals("*")){
+                // 通配符需要特殊判断，InfluxDB无法在bucket name上使用正则表达式匹配，并且仅查询type为user的bucket
+                List<Bucket> buckets = client.getBucketsApi().findBucketsByOrg(organization);
+                for (Bucket bucket : buckets){
+                    if (bucket.getType() == Bucket.TypeEnum.USER){
+                        bucketNameList.add(bucket.getName());
+                    }
+                }
+
+            }
+            else if (client.getBucketsApi().findBucketByName(bucketName) == null) {
+                logger.warn("storage engine {} doesn't exist", bucketName);
+                continue;
+            }else{
+                bucketNameList.add(bucketName);
+            }
+
+            for(String bucket : bucketNameList){
+                String fullQuery = "";
+                if (bucketQueries.containsKey(bucket)) {
+                    fullQuery = bucketQueries.get(bucket);
+                    fullQuery += " or ";
+                }
+                fullQuery += query;
+                bucketQueries.put(bucket, fullQuery);
+            }
+        }
     }
 
     private static String generateQueryStatement(
