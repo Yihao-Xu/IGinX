@@ -451,19 +451,7 @@ public class InfluxDBStorage implements IStorage {
 
   /** 将字符串中的正则表达式特殊字符转义 */
   private String replaceRegexChar(String str) {
-    return str.replace("\\", "\\\\")
-        .replace("$", "\\$")
-        .replace("^", "\\^")
-        .replace(".", "\\.")
-        .replace("+", "\\+")
-        .replace("?", "\\?")
-        .replace("(", "\\(")
-        .replace(")", "\\)")
-        .replace("[", "\\[")
-        .replace("]", "\\]")
-        .replace("{", "\\{")
-        .replace("}", "\\}")
-        .replace("|", "\\|");
+    return str.replaceAll("[.^${}\\[\\]]", "\\\\$0");
   }
 
   private String generateQueryStatement(
@@ -762,7 +750,7 @@ public class InfluxDBStorage implements IStorage {
           if (newValueChildren.size() == 1) {
             return newValueChildren.get(0);
           }
-          return new AndFilter(newValueChildren);
+          return new OrFilter(newValueChildren);
         }
         break;
       case Path:
@@ -783,7 +771,7 @@ public class InfluxDBStorage implements IStorage {
           if (newValueChildren.size() == 1) {
             return newValueChildren.get(0);
           }
-          return new AndFilter(newValueChildren);
+          return new OrFilter(newValueChildren);
         }
 
         if (pathB.equals(wildcardsPath)) {
@@ -804,7 +792,7 @@ public class InfluxDBStorage implements IStorage {
             if (newValueChildren.size() == 1) {
               return newValueChildren.get(0);
             }
-            return new AndFilter(newValueChildren);
+            return new OrFilter(newValueChildren);
           }
         }
         break;
