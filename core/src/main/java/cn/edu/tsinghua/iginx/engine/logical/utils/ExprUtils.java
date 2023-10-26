@@ -455,7 +455,7 @@ public class ExprUtils {
   }
 
   /** 判断filter的path是否在当前的ColumnsRange中 */
-  private static boolean columnRangeContainPath(ColumnsInterval interval, String path) {
+  public static boolean columnRangeContainPath(ColumnsInterval interval, String path) {
     if ((interval.getStartColumn() == null || interval.getStartColumn().compareTo(path) <= 0)
         && (interval.getEndColumn() == null || interval.getEndColumn().compareTo(path) > 0)) {
       return true;
@@ -591,7 +591,7 @@ public class ExprUtils {
     return mergeTrue(newFilter);
   }
 
-  private static boolean isInPatterns(String path, List<String> patterns) {
+  public static boolean isInPatterns(String path, List<String> patterns) {
     for (String pattern : patterns) {
       String regexPattern = pattern;
       regexPattern = regexPattern.replaceAll("[.^${}]", "\\\\$0");
