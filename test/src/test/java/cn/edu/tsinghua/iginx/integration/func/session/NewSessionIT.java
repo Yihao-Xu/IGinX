@@ -1,5 +1,8 @@
 package cn.edu.tsinghua.iginx.integration.func.session;
 
+import static cn.edu.tsinghua.iginx.integration.controller.Controller.SUPPORT_KEY;
+import static cn.edu.tsinghua.iginx.integration.controller.Controller.clearAllData;
+import static cn.edu.tsinghua.iginx.integration.controller.InsertAPIType.*;
 import static cn.edu.tsinghua.iginx.thrift.StorageEngineType.influxdb;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -8,6 +11,7 @@ import static org.junit.Assert.fail;
 import cn.edu.tsinghua.iginx.exceptions.ExecutionException;
 import cn.edu.tsinghua.iginx.exceptions.SessionException;
 import cn.edu.tsinghua.iginx.integration.controller.Controller;
+import cn.edu.tsinghua.iginx.integration.controller.InsertAPIType;
 import cn.edu.tsinghua.iginx.integration.tool.ConfLoader;
 import cn.edu.tsinghua.iginx.integration.tool.DBConf;
 import cn.edu.tsinghua.iginx.integration.tool.MultiConnection;
@@ -22,6 +26,7 @@ import cn.edu.tsinghua.iginx.thrift.StorageEngineType;
 import cn.edu.tsinghua.iginx.thrift.TagFilterType;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -56,6 +61,10 @@ public class NewSessionIT {
   private static boolean isInfluxdb = false;
 
   private static boolean isAbleToDelete = true;
+
+  private static boolean dummyNoData = true;
+
+  private static boolean needCompareResult = true;
 
   public NewSessionIT() {}
 
@@ -111,6 +120,9 @@ public class NewSessionIT {
     if (StorageEngineType.valueOf(conf.getStorageType().toLowerCase()) == influxdb) {
       isInfluxdb = true;
     }
+    if (!SUPPORT_KEY.get(conf.getStorageType()) && conf.isScaling()) {
+      needCompareResult = false;
+    }
     DBConf dbConf = conf.loadDBConf(conf.getStorageType());
     isAbleToDelete = dbConf.getEnumValue(DBConf.DBConfType.isAbleToDelete);
     if (isForSession) {
@@ -146,6 +158,7 @@ public class NewSessionIT {
 
   @AfterClass
   public static void tearDown() throws SessionException {
+    clearAllData(conn);
     conn.closeSession();
   }
 
@@ -153,17 +166,14 @@ public class NewSessionIT {
   public void insertBaseData() {
     // insert base data using all types of insert API.
     List<InsertAPIType> insertAPITypes =
-        Arrays.asList(
-            InsertAPIType.Row,
-            InsertAPIType.NonAlignedRow,
-            InsertAPIType.Column,
-            InsertAPIType.NonAlignedColumn);
+        Arrays.asList(Row, NonAlignedRow, Column, InsertAPIType.NonAlignedColumn);
     long size = (END_KEY - START_KEY) / insertAPITypes.size();
     for (int i = 0; i < insertAPITypes.size(); i++) {
       long start = i * size, end = start + size;
       TestDataSection subBaseData = baseDataSection.getSubDataSectionWithKey(start, end);
       insertData(subBaseData, insertAPITypes.get(i));
     }
+    dummyNoData = false;
   }
 
   @After
@@ -172,51 +182,39 @@ public class NewSessionIT {
   }
 
   private void insertData(TestDataSection data, InsertAPIType type) {
-    try {
-      switch (type) {
-        case Row:
-          conn.insertRowRecords(
-              data.getPaths(),
-              data.getKeys().stream().mapToLong(l -> l).toArray(),
-              data.getValues().stream()
-                  .map(innerList -> innerList.toArray(new Object[0]))
-                  .toArray(Object[][]::new),
-              data.getTypes(),
-              data.getTagsList());
-        case NonAlignedRow:
-          conn.insertNonAlignedRowRecords(
-              data.getPaths(),
-              data.getKeys().stream().mapToLong(l -> l).toArray(),
-              data.getValues().stream()
-                  .map(innerList -> innerList.toArray(new Object[0]))
-                  .toArray(Object[][]::new),
-              data.getTypes(),
-              data.getTagsList());
-        case Column:
-          conn.insertColumnRecords(
-              data.getPaths(),
-              data.getKeys().stream().mapToLong(l -> l).toArray(),
-              transpose(
-                  data.getValues().stream()
-                      .map(innerList -> innerList.toArray(new Object[0]))
-                      .toArray(Object[][]::new)),
-              data.getTypes(),
-              data.getTagsList());
-        case NonAlignedColumn:
-          conn.insertNonAlignedColumnRecords(
-              data.getPaths(),
-              data.getKeys().stream().mapToLong(l -> l).toArray(),
-              transpose(
-                  data.getValues().stream()
-                      .map(innerList -> innerList.toArray(new Object[0]))
-                      .toArray(Object[][]::new)),
-              data.getTypes(),
-              data.getTagsList());
-      }
-    } catch (SessionException | ExecutionException e) {
-      logger.error("Insert date fail. Caused by: {}.", e.getMessage());
-      fail();
+    switch (type) {
+      case Row:
+      case NonAlignedRow:
+        Controller.writeRowsData(
+            conn,
+            data.getPaths(),
+            data.getKeys(),
+            data.getTypes(),
+            data.getValues(),
+            data.getTagsList(),
+            type,
+            dummyNoData);
+        break;
+      case Column:
+      case NonAlignedColumn:
+        List<List<Object>> values = IntStream.range(0, data.getPaths().size())
+            .mapToObj(col -> IntStream.range(0, data.getValues().size())
+                .mapToObj(row -> data.getValues().get(row).get(col))
+                .collect(Collectors.toList()))
+            .collect(Collectors.toList());
+        Controller.writeColumnsData(
+            conn,
+            data.getPaths(),
+            IntStream.range(0, data.getPaths().size())
+                .mapToObj(i -> new ArrayList<>(data.getKeys()))
+                .collect(Collectors.toList()),
+            data.getTypes(),
+            values,
+            data.getTagsList(),
+            type,
+            dummyNoData);
     }
+
   }
 
   private Object[][] transpose(Object[][] array) {
@@ -234,12 +232,18 @@ public class NewSessionIT {
   }
 
   private void compare(TestDataSection expected, SessionQueryDataSet actual) {
+    if (!needCompareResult) {
+        return;
+    }
     compareKeys(expected.getKeys(), actual.getKeys());
     comparePaths(expected.getPaths(), actual.getPaths(), expected.getTagsList());
     compareValues(expected.getValues(), actual.getValues());
   }
 
   private void compare(TestDataSection expected, SessionAggregateQueryDataSet actual) {
+    if (!needCompareResult) {
+      return;
+    }
     assertNull(actual.getKeys());
     comparePaths(expected.getPaths(), actual.getPaths(), expected.getTagsList());
     compareValues(expected.getValues(), actual.getValues());

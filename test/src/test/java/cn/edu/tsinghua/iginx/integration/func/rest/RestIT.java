@@ -1,14 +1,17 @@
 package cn.edu.tsinghua.iginx.integration.func.rest;
 
+import static cn.edu.tsinghua.iginx.integration.controller.Controller.clearAllData;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
 import cn.edu.tsinghua.iginx.exceptions.SessionException;
 import cn.edu.tsinghua.iginx.integration.controller.Controller;
+import cn.edu.tsinghua.iginx.integration.controller.InsertAPIType;
 import cn.edu.tsinghua.iginx.integration.tool.ConfLoader;
 import cn.edu.tsinghua.iginx.integration.tool.DBConf;
 import cn.edu.tsinghua.iginx.session.Session;
+import cn.edu.tsinghua.iginx.thrift.DataType;
 import java.io.*;
+import java.util.*;
 import org.junit.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +26,7 @@ public class RestIT {
 
   private boolean isAbleToDelete = true;
 
+  private boolean dummyNoData = true;
   public RestIT() {
     ConfLoader conf = new ConfLoader(Controller.CONFIG_FILE);
     DBConf dbConf = conf.loadDBConf(conf.getStorageType());
@@ -38,17 +42,59 @@ public class RestIT {
 
   @AfterClass
   public static void tearDown() throws SessionException {
+    clearAllData(session);
     session.closeSession();
   }
 
   @Before
   public void insertData() {
-    try {
-      execute("insert.json", TYPE.INSERT);
-    } catch (Exception e) {
-      logger.error("insertData fail. Caused by: {}.", e.toString());
-      fail();
-    }
+    List<String> pathList = Arrays.asList("archive.file.tracked", "archive.file.search");
+    List<DataType> dataTypeList = Arrays.asList(DataType.DOUBLE, DataType.DOUBLE);
+
+    List<List<Long>> keyList =
+        Arrays.asList(
+            new ArrayList<Long>() {
+              {
+                add(1359788300000L);
+                add(1359788400000L);
+                add(1359788410000L);
+              }
+            },
+            new ArrayList<Long>() {
+              {
+                add(1359786400000L);
+              }
+            });
+    List<List<Object>> valuesList =
+        Arrays.asList(
+            new ArrayList<Object>() {
+              {
+                add(13.2);
+                add(123.3);
+                add(23.1);
+              }
+            },
+            new ArrayList<Object>() {
+              {
+                add(321.0);
+              }
+            });
+    List<Map<String, String>> tagsList =
+        Arrays.asList(
+            new HashMap<String, String>() {
+              {
+                put("dc", "DC1");
+                put("host", "server1");
+              }
+            },
+            new HashMap<String, String>() {
+              {
+                put("host", "server2");
+              }
+            });
+    Controller.writeColumnsData(
+        session, pathList, keyList, dataTypeList, valuesList, tagsList, InsertAPIType.Column, dummyNoData);
+    dummyNoData = false;
   }
 
   @After

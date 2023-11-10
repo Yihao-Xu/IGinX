@@ -39,7 +39,11 @@ public class ParquetHistoryDataGenerator extends BaseHistoryDataGenerator {
 
   @Override
   public void writeHistoryData(
-      int port, List<String> pathList, List<DataType> dataTypeList, List<List<Object>> valuesList) {
+      int port,
+      List<String> pathList,
+      List<DataType> dataTypeList,
+      List<Long> keyList,
+      List<List<Object>> valuesList) {
     if (!PARQUET_PARAMS.containsKey(port)) {
       logger.error("writing to unknown port {}.", port);
       return;
@@ -112,11 +116,21 @@ public class ParquetHistoryDataGenerator extends BaseHistoryDataGenerator {
 
       // insert value
       insertStr = new StringBuilder();
+      boolean hasKeys = !keyList.isEmpty();
       int keyCnt = 0;
-      for (List<Object> values : valuesList) {
+      for (int index = 0; index < valuesList.size(); index++) {
+        List<Object> values = valuesList.get(index);
+        if (hasKeys) {
+          keyCnt = Math.toIntExact(keyList.get(index));
+        }
         insertStr.append("(").append(keyCnt).append(", ");
         for (int i = 0; i < columnCount; i++) {
-          insertStr.append(values.get(i)).append(", ");
+          if (dataTypeList.get(i) == DataType.BINARY) {
+            insertStr.append("'").append(new String((byte[]) values.get(i))).append("'").append(", ");
+          } else {
+            insertStr.append(values.get(i)).append(", ");
+          }
+
         }
         insertStr = new StringBuilder(insertStr.substring(0, insertStr.length() - 2));
         insertStr.append("), ");
@@ -136,6 +150,12 @@ public class ParquetHistoryDataGenerator extends BaseHistoryDataGenerator {
     } catch (SQLException e) {
       logger.error("write history data failed.");
     }
+  }
+
+  @Override
+  public void writeHistoryData(
+      int port, List<String> pathList, List<DataType> dataTypeList, List<List<Object>> valuesList) {
+    writeHistoryData(port, pathList, dataTypeList, new ArrayList<>(), valuesList);
   }
 
   @Override

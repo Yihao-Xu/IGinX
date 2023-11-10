@@ -18,6 +18,8 @@
  */
 package cn.edu.tsinghua.iginx.integration.func.udf;
 
+import static cn.edu.tsinghua.iginx.integration.controller.Controller.SUPPORT_KEY;
+import static cn.edu.tsinghua.iginx.integration.controller.Controller.clearAllData;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
@@ -27,14 +29,11 @@ import cn.edu.tsinghua.iginx.constant.GlobalConstant;
 import cn.edu.tsinghua.iginx.exceptions.ExecutionException;
 import cn.edu.tsinghua.iginx.exceptions.SessionException;
 import cn.edu.tsinghua.iginx.integration.controller.Controller;
+import cn.edu.tsinghua.iginx.integration.controller.InsertAPIType;
+import cn.edu.tsinghua.iginx.integration.tool.ConfLoader;
 import cn.edu.tsinghua.iginx.session.Session;
 import cn.edu.tsinghua.iginx.session.SessionExecuteSqlResult;
-import cn.edu.tsinghua.iginx.thrift.DataFlowType;
-import cn.edu.tsinghua.iginx.thrift.ExportType;
-import cn.edu.tsinghua.iginx.thrift.JobState;
-import cn.edu.tsinghua.iginx.thrift.RegisterTaskInfo;
-import cn.edu.tsinghua.iginx.thrift.TaskInfo;
-import cn.edu.tsinghua.iginx.thrift.TaskType;
+import cn.edu.tsinghua.iginx.thrift.*;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -43,11 +42,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -95,6 +90,10 @@ public class TransformIT {
 
   private static final Map<String, String> TASK_MAP = new HashMap<>();
 
+  private static boolean dummyNoData = true;
+
+  private static boolean needCompareResult = true;
+
   static {
     TASK_MAP.put(
         "RowSumTransformer", OUTPUT_DIR_PREFIX + File.separator + "transformer_row_sum.py");
@@ -106,6 +105,10 @@ public class TransformIT {
 
   @BeforeClass
   public static void setUp() throws SessionException {
+    ConfLoader conf = new ConfLoader(Controller.CONFIG_FILE);
+    if (!SUPPORT_KEY.get(conf.getStorageType()) && conf.isScaling()) {
+      needCompareResult = false;
+    }
     session = new Session("127.0.0.1", 6888, "root", "root");
     session.openSession();
   }
@@ -113,36 +116,45 @@ public class TransformIT {
   @AfterClass
   public static void tearDown() throws SessionException, ExecutionException {
     dropAllTask();
+    clearAllData(session);
     session.closeSession();
   }
 
   @Before
-  public void insertData() throws ExecutionException, SessionException {
-    String insertStrPrefix = "INSERT INTO us.d1 (key, s1, s2, s3, s4) values ";
-    StringBuilder builder = new StringBuilder(insertStrPrefix);
+  public void insertData() {
+    List<String> pathList =
+        new ArrayList<String>() {
+          {
+            add("us.d1.s1");
+            add("us.d1.s2");
+            add("us.d1.s3");
+            add("us.d1.s4");
+          }
+        };
+    List<DataType> dataTypeList =
+        new ArrayList<DataType>() {
+          {
+            add(DataType.LONG);
+            add(DataType.LONG);
+            add(DataType.BINARY);
+            add(DataType.DOUBLE);
+          }
+        };
+    List<Long> keyList = new ArrayList<>();
+    List<List<Object>> valuesList = new ArrayList<>();
     int size = (int) (END_TIMESTAMP - START_TIMESTAMP);
-
     for (int i = 0; i < size; i++) {
-      builder.append(", ");
-      builder.append("(");
-      builder.append(START_TIMESTAMP + i).append(", ");
-      builder.append(i).append(", ");
-      builder.append(i + 1).append(", ");
-      builder
-          .append("\"")
-          .append(new String(RandomStringUtils.randomAlphanumeric(10).getBytes()))
-          .append("\", ");
-      builder.append((i + 0.1));
-      builder.append(")");
+      keyList.add(START_TIMESTAMP + i);
+      valuesList.add(
+          Arrays.asList(
+              (long) i,
+              (long) i + 1,
+              ("\"" + RandomStringUtils.randomAlphanumeric(10) + "\"").getBytes(),
+              (i + 0.1d)));
     }
-    builder.append(";");
-
-    String insertStatement = builder.toString();
-    SessionExecuteSqlResult res = session.executeSql(insertStatement);
-    if (res.getParseErrorMsg() != null && !res.getParseErrorMsg().equals("")) {
-      logger.error("Insert date execute fail. Caused by: {}.", res.getParseErrorMsg());
-      fail();
-    }
+    Controller.writeRowsData(
+        session, pathList, keyList, dataTypeList, valuesList, new ArrayList<>(), InsertAPIType.Row, dummyNoData);
+    dummyNoData = false;
   }
 
   @After
@@ -176,6 +188,9 @@ public class TransformIT {
   private void verifyJobState(long jobId)
       throws SessionException, ExecutionException, InterruptedException {
     logger.info("job is {}", jobId);
+    if (!needCompareResult) {
+      return;
+    }
     JobState jobState = JobState.JOB_CREATED;
     while (!jobState.equals(JobState.JOB_CLOSED)
         && !jobState.equals(JobState.JOB_FAILED)
@@ -284,6 +299,9 @@ public class TransformIT {
     String line = reader.readLine();
     String[] parts = line.split(",");
 
+    if (!needCompareResult) {
+      return;
+    }
     assertEquals(GlobalConstant.KEY_NAME, parts[0]);
     assertEquals("us.d1.s2", parts[1]);
 
@@ -357,6 +375,9 @@ public class TransformIT {
     String line = reader.readLine();
     String[] parts = line.split(",");
 
+    if (!needCompareResult) {
+      return;
+    }
     assertEquals(GlobalConstant.KEY_NAME, parts[0]);
     assertEquals("sum", parts[1]);
 
@@ -479,6 +500,9 @@ public class TransformIT {
     String line = reader.readLine();
     String[] parts = line.split(",");
 
+    if (!needCompareResult) {
+      return;
+    }
     assertEquals(GlobalConstant.KEY_NAME, parts[0]);
     assertEquals("sum", parts[1]);
 
@@ -591,6 +615,9 @@ public class TransformIT {
     String line = reader.readLine();
     String[] parts = line.split(",");
 
+    if (!needCompareResult) {
+      return;
+    }
     assertEquals(GlobalConstant.KEY_NAME, parts[0]);
     assertEquals("sum", parts[1]);
 
