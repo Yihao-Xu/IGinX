@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 用于存储线性/逻辑回归模型的信息
  */
-public class RegressionModelInfo {
+public class RegressionModelInfo implements ModelInfo {
 
     public final ModelType modelType;
 
@@ -18,4 +18,15 @@ public class RegressionModelInfo {
         this.cols = cols;
         this.weights = weights;
     }
+
+    @Override
+    public ModelType getModelType() {
+        return modelType;
+    }
+
+    @Override
+    public List<String> getCols() {
+        return cols;
+    }
+
 }

@@ -5,7 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class DecisionTreeModelInfo {
+public class DecisionTreeModelInfo implements ModelInfo {
 
     public final ModelType modelType;
 
@@ -50,5 +50,15 @@ public class DecisionTreeModelInfo {
         dfs(curNode.right, curPath, Value, res);
 
         curPath.remove(curPath.size() - 1);
+    }
+
+    @Override
+    public ModelType getModelType() {
+        return modelType;
+    }
+
+    @Override
+    public List<String> getCols() {
+        return cols;
     }
 }

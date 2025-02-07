@@ -48,7 +48,6 @@ public class MLPredicatePushdownUtils {
                         break;
                     }
                 }
-
             }
         }
 
@@ -83,7 +82,7 @@ public class MLPredicatePushdownUtils {
      * @param select Select Operator，用于获取算子底下的Project-Fragment算子
      * @param filter 要处理的ML filter，要求为expr filter,左边为ML函数，右边为常数
      */
-    public static List<Filter> generateLinearRegressionPredicate(RegressionModelInfo rmi, Select select, Filter filter){
+    public static List<Filter> generateRegressionPredicate(RegressionModelInfo rmi, Select select, Filter filter){
         List<Filter> res = new ArrayList<>();
         List<String> cols = rmi.cols;
         List<Double> weights = rmi.weights;
@@ -168,6 +167,9 @@ public class MLPredicatePushdownUtils {
         return res;
     }
 
+    /**
+     * 生成decision tree的ML下推谓词
+     */
     public static List<Filter> generateDecisionTreePredicate(DecisionTreeModelInfo dmi, Select select, Filter filter){
         List<Filter> res = new ArrayList<>();
 
