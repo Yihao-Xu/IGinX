@@ -1151,4 +1151,23 @@ public class LogicalFilterUtils {
         throw new IllegalArgumentException("unsupported filter: " + filter);
     }
   }
+
+  /** 返回AndFilter f1是否能覆盖f2，即f2中的项都在f1中出现 */
+  public static boolean cover(AndFilter f1, AndFilter f2) {
+    List<Filter> children1 = f1.getChildren();
+    List<Filter> children2 = f2.getChildren();
+    for (Filter child2 : children2) {
+      boolean isCover = false;
+      for (Filter child1 : children1) {
+        if (child1.toString().equals(child2.toString())) {
+          isCover = true;
+          break;
+        }
+      }
+      if (!isCover) {
+        return false;
+      }
+    }
+    return true;
+  }
 }

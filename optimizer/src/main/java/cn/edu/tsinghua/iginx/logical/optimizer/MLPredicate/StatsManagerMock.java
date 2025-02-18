@@ -19,10 +19,41 @@
  */
 package cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate;
 
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
-public interface ModelInfo {
-  ModelType getModelType();
+public class StatsManagerMock {
+  private final Map<String, Double> minMap;
+  private final Map<String, Double> maxMap;
 
-  List<String> getCols();
+  private static StatsManagerMock instance;
+
+  private StatsManagerMock() {
+    minMap = new HashMap<>();
+    maxMap = new HashMap<>();
+
+    minMap.put("us.d1.s1", 0d);
+    maxMap.put("us.d1.s1", 15000d);
+
+    minMap.put("us.d1.s2", 1d);
+    maxMap.put("us.d1.s2", 15001d);
+
+    minMap.put("us.d1.s4", 0.1d);
+    maxMap.put("us.d1.s4", 15000.1d);
+  }
+
+  public static StatsManagerMock getInstance() {
+    if (instance == null) {
+      instance = new StatsManagerMock();
+    }
+    return instance;
+  }
+
+  public double getMin(String path) {
+    return minMap.get(path);
+  }
+
+  public double getMax(String path) {
+    return maxMap.get(path);
+  }
 }

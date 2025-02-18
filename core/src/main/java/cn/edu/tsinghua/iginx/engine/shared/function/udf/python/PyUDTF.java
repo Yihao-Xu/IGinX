@@ -19,6 +19,8 @@
  */
 package cn.edu.tsinghua.iginx.engine.shared.function.udf.python;
 
+import static cn.edu.tsinghua.iginx.engine.shared.Constants.GET_INFO;
+
 import cn.edu.tsinghua.iginx.engine.shared.data.read.Header;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.Row;
 import cn.edu.tsinghua.iginx.engine.shared.function.FunctionParams;
@@ -28,14 +30,18 @@ import cn.edu.tsinghua.iginx.engine.shared.function.udf.UDTF;
 import cn.edu.tsinghua.iginx.engine.shared.function.udf.utils.CheckUtils;
 import cn.edu.tsinghua.iginx.engine.shared.function.udf.utils.DataUtils;
 import cn.edu.tsinghua.iginx.engine.shared.function.udf.utils.RowUtils;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class PyUDTF extends PyUDF implements UDTF {
 
   private static final String PY_UDTF = "py_udtf";
 
   private final String funcName;
+
+  private static final Set<String> ML_PREDICATE_FUNC_NAMES = new HashSet<>();
 
   public PyUDTF(String funcName, String moduleName, String className) {
     super(moduleName, className);
@@ -97,5 +103,21 @@ public class PyUDTF extends PyUDF implements UDTF {
   @Override
   public String getFunctionName() {
     return funcName;
+  }
+
+  public String getModelInfo() {
+    return getPyUDFModelInfo(GET_INFO);
+  }
+
+  public boolean isMLPredicate() {
+    if (ML_PREDICATE_FUNC_NAMES.contains(this.funcName)) {
+      return true;
+    }
+    String modelInfo = getModelInfo();
+    if (modelInfo == null) {
+      return false;
+    }
+    ML_PREDICATE_FUNC_NAMES.add(funcName);
+    return true;
   }
 }

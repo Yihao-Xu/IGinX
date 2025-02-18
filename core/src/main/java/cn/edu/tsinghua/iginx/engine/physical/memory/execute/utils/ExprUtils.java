@@ -32,18 +32,12 @@ import cn.edu.tsinghua.iginx.engine.shared.function.MappingType;
 import cn.edu.tsinghua.iginx.engine.shared.function.RowMappingFunction;
 import cn.edu.tsinghua.iginx.engine.shared.function.manager.FunctionManager;
 import cn.edu.tsinghua.iginx.engine.shared.function.system.utils.ValueUtils;
-import cn.edu.tsinghua.iginx.engine.shared.operator.filter.Filter;
+import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
 import cn.edu.tsinghua.iginx.thrift.DataType;
 import cn.edu.tsinghua.iginx.utils.DataTypeUtils;
 import java.security.Key;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -928,5 +922,136 @@ public class ExprUtils {
       default:
         return false;
     }
+  }
+
+  /** 获取表达式中所有满足给定条件的表达式 */
+  public static List<Expression> getExpressionByPredicate(
+      Expression expr, Predicate<Expression> predicate) {
+    List<Expression> res = new ArrayList<>();
+    expr.accept(
+        new ExpressionVisitor() {
+          @Override
+          public void visit(BaseExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(BinaryExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(BracketExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(ConstantExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(FromValueExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(FuncExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(MultipleExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(UnaryExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(CaseWhenExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(KeyExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+
+          @Override
+          public void visit(SequenceExpression expression) {
+            if (predicate.test(expression)) {
+              res.add(expression);
+            }
+          }
+        });
+    return res;
+  }
+
+  /** 获取每个Filter对应的父Filter的Map */
+  public static Map<Filter, Filter> getFilterParentMap(Filter filter) {
+    Map<Filter, Filter> res = new HashMap<>();
+    filter.accept(
+        new FilterVisitor() {
+          @Override
+          public void visit(AndFilter filter) {
+            for (Filter child : filter.getChildren()) {
+              res.put(child, filter);
+            }
+          }
+
+          @Override
+          public void visit(OrFilter filter) {
+            for (Filter child : filter.getChildren()) {
+              res.put(child, filter);
+            }
+          }
+
+          @Override
+          public void visit(NotFilter filter) {
+            res.put(filter.getChild(), filter);
+          }
+
+          @Override
+          public void visit(KeyFilter filter) {}
+
+          @Override
+          public void visit(ValueFilter filter) {}
+
+          @Override
+          public void visit(PathFilter filter) {}
+
+          @Override
+          public void visit(BoolFilter filter) {}
+
+          @Override
+          public void visit(ExprFilter filter) {}
+
+          @Override
+          public void visit(InFilter filter) {}
+        });
+    return res;
   }
 }

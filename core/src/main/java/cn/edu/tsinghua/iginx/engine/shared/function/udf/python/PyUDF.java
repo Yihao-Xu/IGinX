@@ -70,4 +70,22 @@ public abstract class PyUDF implements Function {
       return null;
     }
   }
+
+  protected String getPyUDFModelInfo(String funcName) {
+    try {
+      // 由于多个UDF共享interpreter，因此使用独特的对象名
+      String obj = (moduleName + className).replace(".", "a");
+      ThreadInterpreterManager.executeWithInterpreter(
+          interpreter ->
+              interpreter.exec(
+                  String.format(
+                      "import %s; %s = %s.%s()", moduleName, obj, moduleName, className)));
+      return (String)
+          ThreadInterpreterManager.executeWithInterpreterAndReturn(
+              interpreter -> interpreter.invokeMethod(obj, funcName));
+    } catch (Exception e) {
+      LOGGER.error("Invoke python failure: ", e);
+      return null;
+    }
+  }
 }

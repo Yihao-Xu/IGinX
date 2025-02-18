@@ -37,6 +37,8 @@ public class Constants {
   public static final String WINDOW_START_COL = "window_start";
   public static final String WINDOW_END_COL = "window_end";
 
+  public static final String GET_INFO = "get_model_info";
+
   // 保留列名，会在reorder时保留，并按原顺序出现在表的最前面
   public static final Set<String> RESERVED_COLS =
       new HashSet<>(Arrays.asList(WINDOW_START_COL, WINDOW_END_COL));

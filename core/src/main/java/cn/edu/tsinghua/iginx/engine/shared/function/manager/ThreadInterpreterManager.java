@@ -19,6 +19,9 @@
  */
 package cn.edu.tsinghua.iginx.engine.shared.function.manager;
 
+import cn.edu.tsinghua.iginx.conf.Config;
+import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
+import java.io.File;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.validation.constraints.NotNull;
@@ -34,11 +37,39 @@ public class ThreadInterpreterManager {
   private static final ThreadLocal<PythonInterpreter> interpreterThreadLocal = new ThreadLocal<>();
   private static final ThreadLocal<PythonInterpreterConfig> configThreadLocal = new ThreadLocal<>();
 
+  private static final Config config = ConfigDescriptor.getInstance().getConfig();
+
+  private static final String PythonCMD = config.getPythonCMD();
+
+  private static final String PATH =
+      String.join(File.separator, config.getDefaultUDFDir(), "python_scripts");
+
   @NotNull
   public static PythonInterpreter getInterpreter() {
     PythonInterpreter interpreter = interpreterThreadLocal.get();
+    if (configThreadLocal.get() == null) {
+      do {
+        configThreadLocal.set(
+            PythonInterpreterConfig.newBuilder()
+                .setPythonExec(PythonCMD)
+                .addPythonPaths(PATH)
+                .build());
+      } while (configThreadLocal.get().getPythonExec() == null);
+    }
+
     if (interpreter == null) {
-      setInterpreter(new PythonInterpreter(configThreadLocal.get()));
+      boolean success = false;
+      int count = 0;
+      do {
+        try {
+          setInterpreter(new PythonInterpreter(configThreadLocal.get()));
+
+        } catch (NullPointerException e) {
+          count++;
+          continue;
+        }
+        success = true;
+      } while (!success && count < 100);
     }
     return interpreterThreadLocal.get();
   }
