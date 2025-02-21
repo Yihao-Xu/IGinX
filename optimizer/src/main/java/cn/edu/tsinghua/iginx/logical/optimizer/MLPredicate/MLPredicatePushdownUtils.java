@@ -150,7 +150,10 @@ public class MLPredicatePushdownUtils {
       throw new IllegalArgumentException("The right side of the ML filter should be a number");
     }
 
-    List<List<Project>> projectCombinations = generateProjectCombinations(projectFragmentList);
+    //    List<List<Project>> projectCombinations =
+    // generateProjectCombinations(projectFragmentList);
+    List<List<Project>> projectCombinations =
+        projectFragmentList.stream().map(Collections::singletonList).collect(Collectors.toList());
 
     // 根据每个projects组合生成对应的谓词
     for (List<Project> leftProjects : projectCombinations) {
@@ -237,7 +240,10 @@ public class MLPredicatePushdownUtils {
     List<Project> projectFragmentList = new ArrayList<>();
     OperatorUtils.findProjectOperators(projectFragmentList, select);
     Map<Project, List<String>> project2Cols = getCol2ProjectFragment(dmi.cols, projectFragmentList);
-    List<List<Project>> projectCombinations = generateProjectCombinations(projectFragmentList);
+    //    List<List<Project>> projectCombinations =
+    // generateProjectCombinations(projectFragmentList);
+    List<List<Project>> projectCombinations =
+        projectFragmentList.stream().map(Collections::singletonList).collect(Collectors.toList());
 
     // 根据每个projects组合生成对应的谓词
     for (List<Project> leftProjects : projectCombinations) {

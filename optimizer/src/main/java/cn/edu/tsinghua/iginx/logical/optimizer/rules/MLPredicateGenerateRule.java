@@ -28,6 +28,7 @@ import cn.edu.tsinghua.iginx.engine.shared.function.manager.FunctionManager;
 import cn.edu.tsinghua.iginx.engine.shared.function.udf.python.PyUDTF;
 import cn.edu.tsinghua.iginx.engine.shared.operator.Select;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
+import cn.edu.tsinghua.iginx.engine.shared.source.OperatorSource;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.MLPredicatePushdownUtils;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.ModelDataReader;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.ModelInfo;
@@ -88,7 +89,10 @@ public class MLPredicateGenerateRule extends Rule {
         List<Filter> mlFilters =
             MLPredicatePushdownUtils.generateMLPredicate(modelInfo, select, filter);
 
-        // TODO 下推
+        // 直接下推，后续交给filter pushdown规则处理
+        Select mlSelect = new Select(select.getSource(), new AndFilter(mlFilters), null);
+        select.setSource(new OperatorSource(mlSelect));
+        call.transformTo(select);
 
       } catch (Exception e) {
         e.printStackTrace();
