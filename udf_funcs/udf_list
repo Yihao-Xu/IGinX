@@ -13,6 +13,7 @@ UDTF,multiply,UDFMultiply,udtf_multiply.py
 UDTF,columnExpand,UDFColumnExpand,udtf_column_expand.py
 UDTF,pow,UDFPow,udtf_pow.py
 UDTF,key_add_one,UDFKeyAddOne,udtf_key_add_one.py
+UDTF,lr_extend_price,LRExtendPrice,lr_extend_price.py
 
 UDSF,reverse_rows,UDFReverseRows,udsf_reverse_rows.py
 UDSF,transpose,UDFTranspose,udsf_transpose.py

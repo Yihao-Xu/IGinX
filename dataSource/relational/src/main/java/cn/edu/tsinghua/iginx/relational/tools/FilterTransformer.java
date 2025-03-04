@@ -56,6 +56,8 @@ public class FilterTransformer {
         return toString((BoolFilter) filter);
       case In:
         return toString((InFilter) filter);
+      case Expr:
+        return toString((ExprFilter) filter);
       default:
         return "";
     }
@@ -172,5 +174,9 @@ public class FilterTransformer {
 
   private String getQuotName(String name) {
     return relationalMeta.getQuote() + name + relationalMeta.getQuote();
+  }
+
+  private String toString(ExprFilter filter){
+    
   }
 }

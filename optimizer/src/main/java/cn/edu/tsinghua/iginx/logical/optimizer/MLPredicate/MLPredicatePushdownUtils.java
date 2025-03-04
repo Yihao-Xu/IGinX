@@ -24,7 +24,6 @@ import cn.edu.tsinghua.iginx.engine.logical.utils.OperatorUtils;
 import cn.edu.tsinghua.iginx.engine.physical.memory.execute.utils.ExprUtils;
 import cn.edu.tsinghua.iginx.engine.shared.expr.*;
 import cn.edu.tsinghua.iginx.engine.shared.operator.Project;
-import cn.edu.tsinghua.iginx.engine.shared.operator.Select;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
 import cn.edu.tsinghua.iginx.engine.shared.source.FragmentSource;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.exception.MLPredicateUnsupportedModelException;
@@ -85,14 +84,17 @@ public class MLPredicatePushdownUtils {
     return res;
   }
 
-  public static List<Filter> generateMLPredicate(ModelInfo modelInfo, Select select, Filter filter)
+  public static List<Filter> generateMLPredicate(
+      ModelInfo modelInfo,
+      cn.edu.tsinghua.iginx.engine.shared.operator.Operator root,
+      Filter filter)
       throws MLPredicateUnsupportedModelException {
     switch (modelInfo.getModelType()) {
       case LogicalRegression:
       case LinearRegression:
-        return generateRegressionPredicate((RegressionModelInfo) modelInfo, select, filter);
+        return generateRegressionPredicate((RegressionModelInfo) modelInfo, root, filter);
       case DecisionTree:
-        return generateDecisionTreePredicate((DecisionTreeModelInfo) modelInfo, select, filter);
+        return generateDecisionTreePredicate((DecisionTreeModelInfo) modelInfo, root, filter);
       default:
         throw new MLPredicateUnsupportedModelException("The model type is not supported");
     }
@@ -102,18 +104,20 @@ public class MLPredicatePushdownUtils {
    * 生成线性回归的ML下推谓词
    *
    * @param rmi 线性回归模型信息
-   * @param select Select Operator，用于获取算子底下的Project-Fragment算子
+   * @param root Operator，用于获取算子底下的Project-Fragment算子
    * @param filter 要处理的ML filter，要求为expr filter,左边为ML函数，右边为常数
    */
   public static List<Filter> generateRegressionPredicate(
-      RegressionModelInfo rmi, Select select, Filter filter) {
+      RegressionModelInfo rmi,
+      cn.edu.tsinghua.iginx.engine.shared.operator.Operator root,
+      Filter filter) {
     List<Filter> res = new ArrayList<>();
     List<String> cols = rmi.cols;
     List<Double> weights = rmi.weights;
 
     // 生成复合谓词时，将同一个Project-Fragment的列看作一个整体
     List<Project> projectFragmentList = new ArrayList<>();
-    OperatorUtils.findProjectOperators(projectFragmentList, select);
+    OperatorUtils.findProjectOperators(projectFragmentList, root);
     Map<Project, List<String>> project2Cols = getCol2ProjectFragment(cols, projectFragmentList);
     projectFragmentList =
         projectFragmentList.stream()
@@ -206,7 +210,9 @@ public class MLPredicatePushdownUtils {
 
   /** 生成decision tree的ML下推谓词 */
   public static List<Filter> generateDecisionTreePredicate(
-      DecisionTreeModelInfo dmi, Select select, Filter filter) {
+      DecisionTreeModelInfo dmi,
+      cn.edu.tsinghua.iginx.engine.shared.operator.Operator root,
+      Filter filter) {
     List<Filter> res = new ArrayList<>();
 
     // 生成复合谓词时，将同一个Project-Fragment的列看作一个整体
@@ -238,7 +244,7 @@ public class MLPredicatePushdownUtils {
     List<List<DecisionTreeNode>> paths = dmi.getPathOfValue(l);
 
     List<Project> projectFragmentList = new ArrayList<>();
-    OperatorUtils.findProjectOperators(projectFragmentList, select);
+    OperatorUtils.findProjectOperators(projectFragmentList, root);
     Map<Project, List<String>> project2Cols = getCol2ProjectFragment(dmi.cols, projectFragmentList);
     //    List<List<Project>> projectCombinations =
     // generateProjectCombinations(projectFragmentList);

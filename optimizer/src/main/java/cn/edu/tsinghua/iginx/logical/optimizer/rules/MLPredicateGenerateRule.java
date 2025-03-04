@@ -26,14 +26,16 @@ import cn.edu.tsinghua.iginx.engine.shared.expr.FuncExpression;
 import cn.edu.tsinghua.iginx.engine.shared.function.Function;
 import cn.edu.tsinghua.iginx.engine.shared.function.manager.FunctionManager;
 import cn.edu.tsinghua.iginx.engine.shared.function.udf.python.PyUDTF;
+import cn.edu.tsinghua.iginx.engine.shared.operator.InnerJoin;
+import cn.edu.tsinghua.iginx.engine.shared.operator.Operator;
+import cn.edu.tsinghua.iginx.engine.shared.operator.OuterJoin;
 import cn.edu.tsinghua.iginx.engine.shared.operator.Select;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
-import cn.edu.tsinghua.iginx.engine.shared.source.OperatorSource;
+import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.MLFilter;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.MLPredicatePushdownUtils;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.ModelDataReader;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.ModelInfo;
 import cn.edu.tsinghua.iginx.logical.optimizer.core.RuleCall;
-import cn.edu.tsinghua.iginx.utils.Pair;
 import com.google.auto.service.AutoService;
 import java.util.*;
 import java.util.function.Predicate;
@@ -42,26 +44,25 @@ import java.util.stream.Collectors;
 @AutoService(Rule.class)
 public class MLPredicateGenerateRule extends Rule {
 
-  private static final Set<Select> mlPredicateSet =
+  private static final Set<Operator> mlPredicateSet =
       new HashSet<>(); // 记录已经处理过的MLPredicate算子，每个只处理一次
 
   public MLPredicateGenerateRule() {
     /*
      * we want to match the topology like:
-     *         Select
+     *      Select/InnerJoin/OuterJoin
      *           |
      *          Any
      */
-    super("MLPredicatePushDownRule", operand(Select.class, any()));
+    super("MLPredicatePushDownRule", any());
   }
 
   @Override
   public boolean matches(RuleCall call) {
-    // 当Select节点中的filter含有ML谓词时，返回true
-    Select select = (Select) call.getMatchedRoot();
-    Filter filter = select.getFilter();
+    Operator root = call.getMatchedRoot();
+    Filter filter = getFilter(root);
 
-    if (mlPredicateSet.contains(select)) {
+    if (filter == null || mlPredicateSet.contains(root)) {
       return false;
     }
 
@@ -70,15 +71,15 @@ public class MLPredicateGenerateRule extends Rule {
 
   @Override
   public void onMatch(RuleCall call) {
-    Select select = (Select) call.getMatchedRoot();
-    Filter filter = select.getFilter();
-    mlPredicateSet.add(select);
+    Operator root = call.getMatchedRoot();
+    Filter filter = getFilter(root);
+    mlPredicateSet.add(root);
 
-    List<Pair<PyUDTF, FuncExpression>> mlUDFs = getMLUDFFromFilter(filter);
-    for (Pair<PyUDTF, FuncExpression> pair : mlUDFs) {
+    List<MLFilter> mlFilters = getMLUDFFromFilter(filter);
+    for (MLFilter mlFilter : mlFilters) {
       try {
-        PyUDTF mlUDF = pair.k;
-        FuncExpression funcExpression = pair.v;
+        PyUDTF mlUDF = mlFilter.mlUDF;
+        FuncExpression funcExpression = mlFilter.funcExpression;
         String udfInfoStr = mlUDF.getModelInfo();
         ModelInfo modelInfo =
             ModelDataReader.toModelInfo(
@@ -86,29 +87,29 @@ public class MLPredicateGenerateRule extends Rule {
                 funcExpression.getExpressions().stream()
                     .map(Expression::getColumnName)
                     .collect(Collectors.toList()));
-        List<Filter> mlFilters =
-            MLPredicatePushdownUtils.generateMLPredicate(modelInfo, select, filter);
+        List<Filter> generated =
+            MLPredicatePushdownUtils.generateMLPredicate(modelInfo, root, mlFilter.filter);
 
-        // 直接下推，后续交给filter pushdown规则处理
-        Select mlSelect = new Select(select.getSource(), new AndFilter(mlFilters), null);
-        select.setSource(new OperatorSource(mlSelect));
-        call.transformTo(select);
+        // 直接将ML谓词加入当前算子的filter中
+        generated.add(filter);
+        setFilter(root, new AndFilter(generated));
 
+        call.transformTo(root);
       } catch (Exception e) {
         e.printStackTrace();
       }
     }
   }
 
-  private static List<Pair<PyUDTF, FuncExpression>> getMLUDFFromFilter(Filter filter) {
+  private static List<MLFilter> getMLUDFFromFilter(Filter filter) {
     List<ExprFilter> exprFilters = LogicalFilterUtils.getExprFilters(filter);
-    List<Pair<PyUDTF, FuncExpression>> mlUDFs = new ArrayList<>();
+    List<MLFilter> mlFilters = new ArrayList<>();
     if (exprFilters.size() == 0) {
-      return mlUDFs;
+      return mlFilters;
     }
 
     Map<Filter, Filter> parentMap = ExprUtils.getFilterParentMap(filter);
-    List<Expression> funcExpressionList = new ArrayList<>();
+
     for (ExprFilter exprFilter : exprFilters) {
       Filter parent = parentMap.get(exprFilter);
       while (parent != null && parent.getType() != FilterType.Or) {
@@ -123,19 +124,48 @@ public class MLPredicateGenerateRule extends Rule {
           expression ->
               expression.getType() == Expression.ExpressionType.Function
                   && ((FuncExpression) expression).isPyUDF();
+
+      List<Expression> funcExpressionList = new ArrayList<>();
       funcExpressionList.addAll(ExprUtils.getExpressionByPredicate(exprA, isFunc));
       funcExpressionList.addAll(ExprUtils.getExpressionByPredicate(exprB, isFunc));
-    }
 
-    FunctionManager fm = FunctionManager.getInstance();
-    for (Expression expression : funcExpressionList) {
-      FuncExpression funcExpression = (FuncExpression) expression;
-      Function udf = fm.getFunction(funcExpression.getFuncName());
-      if (udf instanceof PyUDTF && ((PyUDTF) udf).isMLPredicate()) {
-        mlUDFs.add(new Pair<>((PyUDTF) udf, funcExpression));
+      FunctionManager fm = FunctionManager.getInstance();
+      for (Expression expression : funcExpressionList) {
+        FuncExpression funcExpression = (FuncExpression) expression;
+        Function udf = fm.getFunction(funcExpression.getFuncName());
+        if (udf instanceof PyUDTF && ((PyUDTF) udf).isMLPredicate()) {
+          mlFilters.add(new MLFilter(exprFilter, funcExpression, (PyUDTF) udf));
+        }
       }
     }
 
-    return mlUDFs;
+    return mlFilters;
+  }
+
+  private Filter getFilter(Operator operator) {
+    switch (operator.getType()) {
+      case Select:
+        return ((Select) operator).getFilter();
+      case InnerJoin:
+        return ((InnerJoin) operator).getFilter();
+      case OuterJoin:
+        return ((OuterJoin) operator).getFilter();
+      default:
+        return null;
+    }
+  }
+
+  private void setFilter(Operator operator, Filter filter) {
+    switch (operator.getType()) {
+      case Select:
+        ((Select) operator).setFilter(filter);
+        break;
+      case InnerJoin:
+        ((InnerJoin) operator).setFilter(filter);
+        break;
+      case OuterJoin:
+        ((OuterJoin) operator).setFilter(filter);
+        break;
+    }
   }
 }
