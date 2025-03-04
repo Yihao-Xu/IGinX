@@ -1054,4 +1054,48 @@ public class ExprUtils {
         });
     return res;
   }
+
+  public static Expression replacePaths(Expression expr, Map<String, String> pathMap) {
+    Expression res = copy(expr);
+    res.accept(
+        new ExpressionVisitor() {
+          @Override
+          public void visit(BaseExpression expression) {
+            expression.setPathName(
+                pathMap.getOrDefault(expression.getColumnName(), expression.getColumnName()));
+          }
+
+          @Override
+          public void visit(BinaryExpression expression) {}
+
+          @Override
+          public void visit(BracketExpression expression) {}
+
+          @Override
+          public void visit(ConstantExpression expression) {}
+
+          @Override
+          public void visit(FromValueExpression expression) {}
+
+          @Override
+          public void visit(FuncExpression expression) {}
+
+          @Override
+          public void visit(MultipleExpression expression) {}
+
+          @Override
+          public void visit(UnaryExpression expression) {}
+
+          @Override
+          public void visit(CaseWhenExpression expression) {}
+
+          @Override
+          public void visit(KeyExpression expression) {}
+
+          @Override
+          public void visit(SequenceExpression expression) {}
+        });
+
+    return res;
+  }
 }
