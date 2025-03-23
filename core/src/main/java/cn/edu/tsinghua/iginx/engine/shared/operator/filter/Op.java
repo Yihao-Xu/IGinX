@@ -275,4 +275,12 @@ public enum Op {
   public static boolean isAndOp(Op op) {
     return op.value >= 10 && op.value <= 19;
   }
+
+  public static boolean isGOp(Op op) {
+    return op.equals(G) || op.equals(G_AND) || op.equals(GE) || op.equals(GE_AND);
+  }
+
+  public static boolean isLOp(Op op) {
+    return op.equals(L) || op.equals(L_AND) || op.equals(LE) || op.equals(LE_AND);
+  }
 }

@@ -22,6 +22,7 @@ package cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate;
 import cn.edu.tsinghua.iginx.engine.logical.utils.LogicalFilterUtils;
 import cn.edu.tsinghua.iginx.engine.logical.utils.OperatorUtils;
 import cn.edu.tsinghua.iginx.engine.physical.memory.execute.utils.ExprUtils;
+import cn.edu.tsinghua.iginx.engine.shared.data.Value;
 import cn.edu.tsinghua.iginx.engine.shared.expr.*;
 import cn.edu.tsinghua.iginx.engine.shared.operator.Project;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
@@ -30,7 +31,9 @@ import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.exception.MLPredicate
 import cn.edu.tsinghua.iginx.metadata.IMetaManager;
 import cn.edu.tsinghua.iginx.metadata.MetaManagerWrapper;
 import cn.edu.tsinghua.iginx.metadata.entity.FragmentMeta;
+import cn.edu.tsinghua.iginx.utils.Pair;
 import cn.edu.tsinghua.iginx.utils.StringUtils;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -147,11 +150,35 @@ public class MLPredicatePushdownUtils {
       l = (double) (long) value;
     } else if (value.getClass().equals(Float.class)) {
       l = (double) (float) value;
-    } else if (value.getClass().equals(Boolean.class)) {
-      l = 0.5;
-      op = (boolean) value ? Op.GE : Op.L;
     } else {
       throw new IllegalArgumentException("The right side of the ML filter should be a number");
+    }
+
+    if(rmi.modelType == ModelType.LogicalRegression){
+      if(l == 0){
+        l = 0;
+        op = Op.GE;
+      }else{
+        l = 0;
+        op = Op.L;
+      }
+    }
+
+    // 先获取原子谓词，获取所有列的原子谓词边界
+    Map<String, Double> col2AtomicBound = new HashMap<>();
+    for (String col : cols) {
+      double M = l - w0;
+      for (String x : cols) {
+        if (x.equals(col)) continue;
+        double w = col2Weight.get(x);
+        M -= w > 0 ? w * statsManager.getMin(x) : w * statsManager.getMax(x);
+      }
+
+      double w = col2Weight.get(col);
+      M /= w;
+      //      if(w > 0) col2AtomicBound.put(col, Math.min(M, statsManager.getMax(col)));
+      //      else col2AtomicBound.put(col, Math.max(M, statsManager.getMin(col)));
+      col2AtomicBound.put(col, M);
     }
 
     //    List<List<Project>> projectCombinations =
@@ -195,8 +222,8 @@ public class MLPredicatePushdownUtils {
       // 计算右侧常量
       double rightConst = l - w0;
       for (String col : rightCols) {
-        rightConst -= statsManager.getMin(col) * col2Weight.get(col);
-        rightConst -= statsManager.getMax(col) * col2Weight.get(col);
+        double w = col2Weight.get(col);
+        rightConst -= w > 0 ? w * statsManager.getMin(col) : w * statsManager.getMax(col);
       }
       Expression rightExpr = new ConstantExpression(rightConst);
 
@@ -240,7 +267,7 @@ public class MLPredicatePushdownUtils {
           dmi.cols.get(i), funcExpression.getExpressions().get(i).getColumnName());
     }
 
-    Object l = constantExpression.getValue();
+    String l = new String((byte[]) constantExpression.getValue());
     List<List<DecisionTreeNode>> paths = dmi.getPathOfValue(l);
 
     List<Project> projectFragmentList = new ArrayList<>();
@@ -264,33 +291,159 @@ public class MLPredicatePushdownUtils {
       List<Filter> orChildren = new ArrayList<>();
       for (List<DecisionTreeNode> path : paths) {
         AndFilter andFilter = new AndFilter(new ArrayList<>());
-        for (DecisionTreeNode node : path) {
+        for (int i = 0; i < path.size(); i++) {
+          DecisionTreeNode node = path.get(i);
           if (node.filter == null) continue;
           Filter curFilter =
               getFiltersFromDecisionTreeNode(node.filter.copy(), needCols, modelCol2IGinXCol);
+
+          if(curFilter.getType() != FilterType.Bool && i != path.size() -1 && node.left != path.get(i+1)){
+            ValueFilter valueFilter = (ValueFilter) curFilter;
+            curFilter = new ValueFilter(valueFilter.getPath(), Op.G, valueFilter.getValue());
+          }
+
           if (curFilter.getType() == FilterType.Bool) {
             continue;
           }
           andFilter.getChildren().add(curFilter);
         }
         if (andFilter.getChildren().size() > 0) {
-          orChildren =
-              orChildren.stream()
-                  .filter(f -> !LogicalFilterUtils.cover(andFilter, (AndFilter) f))
-                  .collect(Collectors.toList()); // 将当前结果中的被当前and filter覆盖的filter去掉
-          if (orChildren.stream()
-              .noneMatch(f -> LogicalFilterUtils.cover((AndFilter) f, andFilter))) {
             orChildren.add(andFilter);
-          }
         }
       }
       OrFilter orFilter = new OrFilter(orChildren);
       if (orChildren.size() > 0 && res.stream().noneMatch(f -> f.equals(orFilter))) {
-        res.add(new OrFilter(orChildren));
+        res.add(simplifyFilter(orFilter));
       }
     }
 
     return res;
+  }
+
+  private static Filter simplifyFilter(OrFilter f) {
+    Map<String, IntervalGroup> col2IntervalGroup = getCol2IntervalGroup(f);
+    List<Filter> orChildren = new ArrayList<>();
+    for(Map.Entry<String, IntervalGroup> entry: col2IntervalGroup.entrySet()){
+      String col = entry.getKey();
+      IntervalGroup intervalGroup = entry.getValue();
+      for(Interval interval: intervalGroup.intervals) {
+        List<Filter> curFilters = new ArrayList<>();
+        if (interval.lowerBound != Double.MIN_VALUE) {
+          curFilters.add(new ValueFilter(col, Op.G, new Value(interval.lowerBound)));
+        }
+        if (interval.upperBound != Double.MAX_VALUE) {
+          curFilters.add(new ValueFilter(col, Op.LE, new Value(interval.upperBound)));
+        }
+        if (curFilters.size() == 2) {
+          orChildren.add(new AndFilter(curFilters));
+        } else if (curFilters.size() == 1) {
+          orChildren.add(curFilters.get(0));
+        }
+      }
+    }
+    return new OrFilter(orChildren);
+  }
+
+  private static class Interval{
+    double lowerBound;
+    double upperBound;
+
+    public Interval(double lowerBound, double upperBound){
+      this.lowerBound = lowerBound;
+      this.upperBound = upperBound;
+    }
+
+    public static Interval intersect(Interval a, Interval b){
+      return new Interval(Math.max(a.lowerBound, b.lowerBound), Math.min(a.upperBound, b.upperBound));
+
+    }
+
+    public static Interval union(Interval a, Interval b){
+      return new Interval(Math.min(a.lowerBound, b.lowerBound), Math.max(a.upperBound, b.upperBound));
+    }
+
+    public static Interval FullInterval(){
+      return new Interval(Double.MIN_VALUE, Double.MAX_VALUE);
+    }
+  }
+
+  private static class IntervalGroup{
+    public List<Interval> intervals;
+
+    public IntervalGroup(List<Interval> intervals){
+      this.intervals = intervals;
+    }
+
+    public IntervalGroup(){
+      this.intervals = new ArrayList<>();
+    }
+
+    public void addUnion(Interval interval){
+      for(int i = 0; i < intervals.size(); i++){
+        Interval cur = intervals.get(i);
+        if(cur.lowerBound > interval.lowerBound){
+          intervals.add(i, interval);
+          return;
+        }
+      }
+      intervals.add(interval);
+      merge();
+    }
+
+    private void merge(){
+      // 插入时已排序
+      int n = intervals.size();
+        for(int i = 0; i < n - 1; i++){
+            if(intervals.get(i).upperBound >= intervals.get(i+1).lowerBound){
+              intervals.set(i, Interval.union(intervals.get(i), intervals.get(i+1)));
+              intervals.remove(i+1);
+              i--;
+              n--;
+            }
+        }
+    }
+
+  }
+
+  /**
+   * 从OrFilter中提取出各个列的值域，传入的filter必须是OrFilter(AndFilter(ValueFilter))的形式
+   */
+  private static Map<String, IntervalGroup> getCol2IntervalGroup(OrFilter orFilter){
+    Map<String, IntervalGroup> res = new HashMap<>();
+    for(Filter f: orFilter.getChildren()){
+      AndFilter andFilter = (AndFilter) f;
+      Map<String, Interval> col2Interval = getCol2Interval(andFilter);
+      for(Map.Entry<String, Interval> entry: col2Interval.entrySet()){
+        String col = entry.getKey();
+        Interval interval = entry.getValue();
+        if(!res.containsKey(col)){
+          res.put(col, new IntervalGroup());
+        }
+        res.get(col).addUnion(interval);
+      }
+    }
+    return res;
+  }
+
+  /**
+   * 从AndFilter中提取出各个列的值域，传入的filter必须是AndFilter(ValueFilter)的形式
+   */
+  private static Map<String, Interval> getCol2Interval(AndFilter filter) {
+    Map<String, Interval> res = new HashMap<>();
+
+    for(Filter f: filter.getChildren()){
+        ValueFilter valueFilter = (ValueFilter) f;
+        if(Op.isLOp(valueFilter.getOp())) {
+          res.put(valueFilter.getPath(), Interval.intersect(res.getOrDefault(valueFilter.getPath(), Interval.FullInterval()),
+                  new Interval(Double.MIN_VALUE, (valueFilter.getValue()).getDoubleV())));
+        }else{
+            res.put(valueFilter.getPath(), Interval.intersect(res.getOrDefault(valueFilter.getPath(), Interval.FullInterval()),
+                    new Interval((valueFilter.getValue()).getDoubleV(), Double.MAX_VALUE)));
+        }
+      }
+
+    return res;
+
   }
 
   /**

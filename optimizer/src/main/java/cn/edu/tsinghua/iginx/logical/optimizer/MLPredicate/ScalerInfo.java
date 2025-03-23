@@ -19,28 +19,25 @@
  */
 package cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate;
 
-import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
-import java.math.BigDecimal;
+import java.util.List;
 
-public class DecisionTreeNode {
+public class ScalerInfo {
+  List<Double> mean;
+  List<Double> scale;
 
-  public Filter filter;
+  List<String> cols;
 
-  public DecisionTreeNode left;
-
-  public DecisionTreeNode right;
-
-  public String leafValue;
-
-  public DecisionTreeNode(
-      Filter filter, DecisionTreeNode left, DecisionTreeNode right, String leafValue) {
-    this.filter = filter;
-    this.left = left;
-    this.right = right;
-    this.leafValue = leafValue;
+  public ScalerInfo(List<Double> mean, List<Double> scale, List<String> cols) {
+    this.mean = mean;
+    this.scale = scale;
+    this.cols = cols;
   }
 
-  public DecisionTreeNode(Filter filter) {
-    this(filter, null, null, null);
+  public List<Double> getMean() {
+    return mean;
+  }
+
+  public List<Double> getScale() {
+    return scale;
   }
 }

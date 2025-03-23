@@ -43,24 +43,12 @@ public class DecisionTreeModelInfo implements ModelInfo {
    * @param value 给定值
    * @return 路径节点set，已去重
    */
-  public List<List<DecisionTreeNode>> getPathOfValue(Object value) {
+  public List<List<DecisionTreeNode>> getPathOfValue(String value) {
     List<List<DecisionTreeNode>> res = new ArrayList<>();
 
     List<DecisionTreeNode> curPath = new ArrayList<>();
-    BigDecimal v;
-    if (value instanceof Double) {
-      v = BigDecimal.valueOf((Double) value);
-    } else if (value instanceof Integer) {
-      v = new BigDecimal((Integer) value);
-    } else if (value instanceof Long) {
-      v = new BigDecimal((Long) value);
-    } else if (value instanceof Float) {
-      v = BigDecimal.valueOf((Float) value);
-    } else {
-      throw new IllegalArgumentException("Unsupported value type: " + value.getClass());
-    }
 
-    dfs(root, curPath, v, res);
+    dfs(root, curPath, value, res);
 
     return res;
   }
@@ -68,7 +56,7 @@ public class DecisionTreeModelInfo implements ModelInfo {
   private void dfs(
       DecisionTreeNode curNode,
       List<DecisionTreeNode> curPath,
-      BigDecimal value,
+      String value,
       List<List<DecisionTreeNode>> res) {
     if (curNode == null) {
       return;
@@ -76,7 +64,7 @@ public class DecisionTreeModelInfo implements ModelInfo {
 
     curPath.add(curNode);
 
-    if (curNode.leafValue != null && curNode.leafValue.compareTo(value) == 0) {
+    if (curNode.leafValue != null && curNode.leafValue.equals(value)) {
       res.add(new ArrayList<>(curPath));
     }
 

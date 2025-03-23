@@ -332,6 +332,35 @@ public class ColumnPruningRule extends Rule {
             leftColumns.addAll(getNewColumns(leftColumns, extraJoinPath));
             rightColumns.addAll(getNewColumns(rightColumns, extraJoinPath));
           }
+        } else {
+          // 找左右两侧的Project，直接分配
+          Operator left = ((OperatorSource) ((BinaryOperator) operator).getSourceA()).getOperator();
+          Operator right =
+              ((OperatorSource) ((BinaryOperator) operator).getSourceB()).getOperator();
+
+          List<String> leftPatterns =
+              OperatorUtils.getPatternFromOperatorChildren(left, new ArrayList<>());
+          List<String> rightPatterns =
+              OperatorUtils.getPatternFromOperatorChildren(right, new ArrayList<>());
+
+          for (String col : columns) {
+            if (leftPatterns.stream()
+                .anyMatch(
+                    p ->
+                        p.equals(col)
+                            || (p.contains("*")
+                                && Pattern.matches(StringUtils.reformatPath(p), col)))) {
+              leftColumns.add(col);
+            }
+            if (rightPatterns.stream()
+                .anyMatch(
+                    p ->
+                        p.equals(col)
+                            || (p.contains("*")
+                                && Pattern.matches(StringUtils.reformatPath(p), col)))) {
+              rightColumns.add(col);
+            }
+          }
         }
 
       } else if (OperatorType.isSetOperator(operator.getType())) {

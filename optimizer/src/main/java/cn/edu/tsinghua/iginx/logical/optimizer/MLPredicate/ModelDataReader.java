@@ -24,6 +24,7 @@ import cn.edu.tsinghua.iginx.engine.shared.operator.filter.Op;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.ValueFilter;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.exception.MLPredicateUnsupportedModelException;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -53,9 +54,33 @@ public class ModelDataReader {
   private static RegressionModelInfo toRegressionModelInfo(
       JSONObject modelJson, List<String> cols) {
     ModelType modelType = toModelType(modelJson.getString("type"));
-    List<Double> weights = new ArrayList<>(modelJson.getJSONArray("coef").toJavaList(Double.class));
-    weights.add(0, modelJson.getDouble("intercept"));
-    return new RegressionModelInfo(modelType, cols, weights);
+    List<Double> weights_scaled =
+            modelJson.getJSONArray("coef").get(0) instanceof JSONArray ?
+                    ((JSONArray)modelJson.getJSONArray("coef").get(0)).toJavaList(Double.class) :
+                    modelJson.getJSONArray("coef").toJavaList(Double.class);
+    double intercept_scaled = modelJson.getDouble("intercept");
+
+    double intercept_unscaled = intercept_scaled;
+    List<Double> weights_unscaled = new ArrayList<>(weights_scaled);
+
+    // 反归一化
+    if (modelJson.containsKey("scaler")) {
+      JSONObject scalerJson = modelJson.getJSONObject("scaler");
+      List<Double> mean = scalerJson.getJSONArray("mean").toJavaList(Double.class);
+      List<Double> scale = scalerJson.getJSONArray("scale").toJavaList(Double.class);
+
+      // 反归一化权重
+      for (int i = 0; i < weights_scaled.size(); i++) {
+        weights_unscaled.set(
+            i, weights_scaled.get(i) / scale.get(i)); // w_original = w_scaled / scale
+        intercept_unscaled -=
+            (weights_scaled.get(i) * mean.get(i)) / scale.get(i); // Adjust intercept
+      }
+    }
+
+    weights_unscaled.add(0, intercept_unscaled);
+
+    return new RegressionModelInfo(modelType, cols, weights_unscaled);
   }
 
   /** 将决策树模型json字符串转换为模型信息 */
@@ -83,6 +108,8 @@ public class ModelDataReader {
       }
     }
 
+    // TODO 读取反归一化信息
+
     return new DecisionTreeModelInfo(modelType, root, cols);
   }
 
@@ -91,7 +118,7 @@ public class ModelDataReader {
     Integer feature = nodeJson.getInteger("feature_index");
     boolean isLeaf = feature == null;
     if (isLeaf) {
-      BigDecimal leafValue = nodeJson.getJSONArray("value").getJSONArray(0).getBigDecimal(0);
+      String leafValue = nodeJson.getString("value");
       return new DecisionTreeNode(null, null, null, leafValue);
     } else {
       String col = cols.get(feature);
@@ -106,9 +133,9 @@ public class ModelDataReader {
     switch (modelType) {
       case "LinearRegression":
         return ModelType.LinearRegression;
-      case "LogicalRegression":
+      case "LogisticRegression":
         return ModelType.LogicalRegression;
-      case "DecisionTree":
+      case "DecisionTreeClassifier":
         return ModelType.DecisionTree;
       default:
         return ModelType.Unknown;
