@@ -1,27 +1,9 @@
-#
-# IGinX - the polystore system with high performance
-# Copyright (C) Tsinghua University
-# TSIGinX@gmail.com
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public
-# License as published by the Free Software Foundation; either
-# version 3 of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
-#
-
 """
 所有UDF ML谓词的抽象父类
 """
 from abc import ABC, abstractmethod
+
+import numpy as np
 
 
 class UDFMLPredicate(ABC):
@@ -40,16 +22,32 @@ class UDFMLPredicate(ABC):
     def buildHeader(self, data):
         """构建结果表头"""
 
+    @abstractmethod
+    def get_scaler(self):
+        """加载标准化器"""
+
     def get_model_info(self):
         """获取模型信息，以json格式字符串返回"""
         model = self.get_model()
         if model is None:
             raise ValueError("Model is not loaded. Please correctly load a model using get_model().")
+
+        try:
+            scaler = self.get_scaler()
+            scaler_info = {
+                "mean": scaler.mean_.tolist(),
+                "scale": scaler.scale_.tolist(),
+                "feature_names": list(scaler.feature_names_in_) if hasattr(scaler,"feature_names_in_") else None  # 转换 numpy array
+            }
+        except Exception as e:
+            print(f"Warning: Could not load scaler.pkl, proceeding without normalization info. Error: {e}")
+            scaler_info = None  # 如果加载失败，则不包含归一化信息
+
         # 根据模型的不同类型输出信息：
-        if model.__class__.__name__ == "DecisionTreeRegressor":
+        if model.__class__.__name__ == "DecisionTreeClassifier":
             tree = model.tree_
             model_info = {
-                "type": "DecisionTree",
+                "type": "DecisionTreeClassifier",
                 "max_depth": model.max_depth,
                 "feature_importances": model.feature_importances_.tolist(),
                 "n_features": model.n_features_in_,
@@ -61,18 +59,21 @@ class UDFMLPredicate(ABC):
                 if tree.children_left[i] != tree.children_right[i]:  # 判断是否为内部节点
                     node = {
                         "node": i,
-                        "feature_index": tree.feature[i],
-                        "threshold": tree.threshold[i],
-                        "left_child": tree.children_left[i],
-                        "right_child": tree.children_right[i],
-                        "n_samples": tree.n_node_samples[i],
+                        "feature_index": int(tree.feature[i]),
+                        "threshold": float(tree.threshold[i]),
+                        "left_child": int(tree.children_left[i]),
+                        "right_child": int(tree.children_right[i]),
+                        "n_samples": int(tree.n_node_samples[i]),
                         "value": tree.value[i].tolist()
                     }
                 else:  # 叶子节点
+                    counts = tree.value[i][0]
+                    class_index = int(np.argmax(counts))
+                    predicted_label = model.classes_[class_index]  # ✅ 转换为实际标签
                     node = {
                         "node": i,
-                        "n_samples": tree.n_node_samples[i],
-                        "value": tree.value[i].tolist()
+                        "n_samples": int(tree.n_node_samples[i]),
+                        "value": predicted_label  # ✅ 返回真实的分类值（如 'S'）
                     }
                 model_info["nodes"].append(node)
 
@@ -80,15 +81,19 @@ class UDFMLPredicate(ABC):
             model_info = {
                 "type": "LinearRegression",
                 "coef": model.coef_.tolist(),
-                "intercept": model.intercept_
+                "intercept": float(model.intercept_)
             }
         elif model.__class__.__name__ == "LogisticRegression":
             model_info = {
                 "type": "LogisticRegression",
                 "coef": model.coef_.tolist(),
-                "intercept": model.intercept_
+                "intercept": float(model.intercept_)
             }
         else:
             raise ValueError(f"Unsupported MLPredicate model type: {model.__class__.__name__}")
+
+        if scaler_info:
+            model_info["scaler"] = scaler_info
+
         return model_info.__str__()
 
