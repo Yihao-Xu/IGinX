@@ -418,6 +418,9 @@ public class RelationQueryRowStream implements RowStream {
       case INTEGER:
         return ((Number) value).intValue();
       case LONG:
+        if (value instanceof Date) {
+          return ((Date) value).getTime();
+        }
         return ((Number) value).longValue();
       case FLOAT:
         return ((Number) value).floatValue();
