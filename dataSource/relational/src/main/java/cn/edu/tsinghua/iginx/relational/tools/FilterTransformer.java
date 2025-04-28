@@ -124,6 +124,14 @@ public class FilterTransformer {
         }
         break;
     }
+
+    if (path.contains("date")) {
+      // TODO: 临时操作，将dummy tpch测试中的date修改为数据库可接受的YYYYY-MM-DD格式
+      long time = filter.getValue().getLongV();
+      String date = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(time));
+      value = "'" + date + "'";
+    }
+
     if (engine.equals("dameng")
         && (filter.getOp() == Op.LIKE
             || filter.getOp() == Op.LIKE_AND
