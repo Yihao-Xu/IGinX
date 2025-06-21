@@ -105,7 +105,7 @@ public class OptimizerIT {
 
     String rules = executor.execute("SHOW RULES;");
     this.isOptimizerOpen = rules.contains("FilterPushDownRule|    ON|");
-    Assume.assumeTrue(isOptimizerOpen);
+    //    Assume.assumeTrue(isOptimizerOpen);
     ruleList = getRuleList();
   }
 
@@ -2005,5 +2005,19 @@ public class OptimizerIT {
             + "Total line number = 1\n");
 
     executor.execute("delete columns test.a,test.b;");
+  }
+
+  @Test
+  public void MLPredicatePushDownTest() {
+    List<String> sql = new ArrayList<>();
+    sql.add("SELECT * FROM us.d1 WHERE udf_lr2_model(s1, s2) > 100000;");
+    sql.add("SELECT * FROM us.d1 WHERE udf_lgr2_model(s1, s2) = true;");
+    sql.add("SELECT * FROM us.d1 WHERE udf_dt2_model(s1, s2) = 1;");
+
+    String openRule = "SET RULES MLPredicatePushDownRule=on;";
+    String closeRule = "SET RULES MLPredicatePushDownRule=off;";
+
+    executor.execute(openRule);
+    System.out.println(executor.execute(sql.get(2)));
   }
 }

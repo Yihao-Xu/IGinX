@@ -6,17 +6,29 @@ WITH tmpTableA AS(
     FROM
         (
             SELECT
-                l_partkey AS partkey,
-                l_suppkey AS suppkey,
-                SUM( l_quantity ) AS tmp
+                lineitem.l_partkey AS partkey,
+                lineitem.l_suppkey AS suppkey,
+                SUM( lineitem.l_quantity ) AS tmp
             FROM
                 lineitem
+            JOIN part ON
+                part.p_partkey = lineitem.l_partkey
+            JOIN partsupp ON
+                partsupp.ps_partkey = part.p_partkey
+                AND partsupp.ps_suppkey = lineitem.l_suppkey
             WHERE
                 lineitem.l_shipdate >= 757353600000
                 AND lineitem.l_shipdate < 788889600000
+                AND lr_extend_price(
+                    lineitem.l_quantity,
+                    part.p_retailprice,
+                    partsupp.ps_supplycost,
+                    partsupp.ps_availqty,
+                    lineitem.l_discount
+                )< 30000
             GROUP BY
-                l_partkey,
-                l_suppkey
+                lineitem.l_partkey,
+                lineitem.l_suppkey
         )
 ) SELECT
     supplier.s_name,
@@ -34,18 +46,16 @@ WHERE
         JOIN tmpTableA ON
             tmpTableA.suppkey = partsupp.ps_suppkey
             AND tmpTableA.partkey = partsupp.ps_partkey
-        JOIN part ON
-            partsupp.ps_partkey = part.p_partkey
         WHERE
-            part.p_name LIKE 'forest.*'
+            partsupp.ps_partkey IN(
+                SELECT
+                    p_partkey
+                FROM
+                    part
+                WHERE
+                    part.p_name LIKE 'forest.*'
+            )
             AND partsupp.ps_availqty > tmpTableA.val
-            AND lr_extend_price(
-                tmpTableA.val,
-                part.p_retailprice,
-                partsupp.ps_supplycost,
-                partsupp.ps_availqty,
-                0
-            )> 30000
     )
     AND nation.n_name = 'CANADA'
 ORDER BY

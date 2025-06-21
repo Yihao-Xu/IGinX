@@ -43,7 +43,7 @@ WHERE
         partsupp.ps_supplycost,
         partsupp.ps_availqty,
         l1.l_discount
-    )> 30000
+    )< 30000
 GROUP BY
     supplier.s_name
 ORDER BY

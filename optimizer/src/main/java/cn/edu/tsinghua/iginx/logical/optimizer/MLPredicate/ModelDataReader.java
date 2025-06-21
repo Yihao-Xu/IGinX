@@ -26,7 +26,6 @@ import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.exception.MLPredicate
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -55,9 +54,9 @@ public class ModelDataReader {
       JSONObject modelJson, List<String> cols) {
     ModelType modelType = toModelType(modelJson.getString("type"));
     List<Double> weights_scaled =
-            modelJson.getJSONArray("coef").get(0) instanceof JSONArray ?
-                    ((JSONArray)modelJson.getJSONArray("coef").get(0)).toJavaList(Double.class) :
-                    modelJson.getJSONArray("coef").toJavaList(Double.class);
+        modelJson.getJSONArray("coef").get(0) instanceof JSONArray
+            ? ((JSONArray) modelJson.getJSONArray("coef").get(0)).toJavaList(Double.class)
+            : modelJson.getJSONArray("coef").toJavaList(Double.class);
     double intercept_scaled = modelJson.getDouble("intercept");
 
     double intercept_unscaled = intercept_scaled;

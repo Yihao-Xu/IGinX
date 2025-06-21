@@ -189,7 +189,7 @@ andExpression
 predicate
    : (KEY | path) comparisonOperator constant
    | constant comparisonOperator (KEY | path)
-   | (path | functionName LR_BRACKET path RR_BRACKET) inOperator array
+   | expression inOperator array
    | path comparisonOperator path
    | path (NOT | EXCLAMATION)? stringLikeOperator regex = stringLiteral
    | (NOT | EXCLAMATION)? LR_BRACKET orExpression RR_BRACKET

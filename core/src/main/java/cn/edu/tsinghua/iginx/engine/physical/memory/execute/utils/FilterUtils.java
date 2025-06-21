@@ -83,12 +83,13 @@ public class FilterUtils {
     return false;
   }
 
-  private static boolean validateInFilter(InFilter inFilter, Row row) {
-    String path = inFilter.getPath();
+  private static boolean validateInFilter(InFilter inFilter, Row row) throws PhysicalException {
+    Expression expr = inFilter.getExpression();
     Set<Value> values = inFilter.getValues();
 
-    if (path.contains("*")) { // 带通配符的filter
-      List<Value> valueList = row.getAsValueByPattern(path);
+    if (expr.getType() == Expression.ExpressionType.Base
+        && expr.getColumnName().contains("*")) { // 带通配符的filter
+      List<Value> valueList = row.getAsValueByPattern(expr.getColumnName());
       InFilter.InOp inOp = inFilter.getInOp();
       if (inOp.isOrOp()) {
         for (Value value : valueList) {
@@ -117,7 +118,7 @@ public class FilterUtils {
         return true;
       }
     } else {
-      Value value = row.getAsValue(path);
+      Value value = ExprUtils.calculateExpr(row, expr);
       if (value == null || value.isNull()) { // value是空值，则认为不可比较
         return false;
       }
@@ -338,7 +339,7 @@ public class FilterUtils {
         paths.add(pathFilter.getPathB());
         break;
       case In:
-        paths.add(((InFilter) filter).getPath());
+        paths.addAll(ExprUtils.getPathFromExpr(((InFilter) filter).getExpression()));
         break;
       case Expr:
         ExprFilter exprFilter = (ExprFilter) filter;

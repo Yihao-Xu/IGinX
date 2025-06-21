@@ -9,9 +9,8 @@ FROM
             n1.n_name AS supp_nation,
             n2.n_name AS cust_nation,
             EXTRACT(
-                YEAR
-            FROM
-                lineitem.l_shipdate
+                lineitem.l_shipdate,
+                "year"
             ) AS l_year,
             lineitem.l_extendedprice *(
                 1 - lineitem.l_discount
@@ -52,8 +51,8 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
-    ) AS subquery
+            )< 30000
+    )
 GROUP BY
     supp_nation,
     cust_nation,

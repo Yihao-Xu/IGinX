@@ -43,8 +43,8 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
-    ) AS subquery
+            )< 30000
+    )
 GROUP BY
     customer.c_custkey,
     customer.c_name,

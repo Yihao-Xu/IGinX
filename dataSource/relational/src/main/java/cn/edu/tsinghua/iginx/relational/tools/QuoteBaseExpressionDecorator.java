@@ -29,14 +29,27 @@ public class QuoteBaseExpressionDecorator implements Expression {
 
   private static String DERIVED = "derived";
 
+  private boolean useDerived = true;
+
   public QuoteBaseExpressionDecorator(BaseExpression baseExpression, char quote) {
     this.baseExpression = baseExpression;
     this.quote = quote;
   }
 
+  public QuoteBaseExpressionDecorator(
+      BaseExpression baseExpression, char quote, boolean useDerived) {
+    this.baseExpression = baseExpression;
+    this.quote = quote;
+    this.useDerived = useDerived;
+  }
+
   @Override
   public String getColumnName() {
-    return DERIVED + "." + quote + baseExpression.getColumnName() + quote;
+    if (useDerived) {
+      return DERIVED + "." + quote + baseExpression.getColumnName() + quote;
+    } else {
+      return new RelationSchema(baseExpression.getColumnName(), quote).getQuoteFullName();
+    }
   }
 
   @Override

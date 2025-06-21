@@ -3,7 +3,7 @@ SELECT
 FROM
     (
         SELECT
-            l_extendedprice * l_discount AS revenue
+            lineitem.l_extendedprice * lineitem.l_discount AS revenue
         FROM
             lineitem
         JOIN part ON
@@ -23,5 +23,5 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
-    ) AS subquery;
+            )< 30000
+    );

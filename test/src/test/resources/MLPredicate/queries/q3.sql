@@ -1,4 +1,4 @@
-SELECT
+explain physical SELECT
     l_orderkey,
     SUM( tmp ) AS revenue,
     o_orderdate,
@@ -33,8 +33,8 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
-    ) AS subquery
+            )< 30000
+    )
 GROUP BY
     l_orderkey,
     o_orderdate,

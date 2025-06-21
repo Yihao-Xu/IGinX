@@ -23,6 +23,8 @@ import static cn.edu.tsinghua.iginx.engine.shared.operator.filter.InFilter.InOp.
 import static cn.edu.tsinghua.iginx.engine.shared.operator.filter.InFilter.InOp.getOppositeOp;
 
 import cn.edu.tsinghua.iginx.engine.shared.data.Value;
+import cn.edu.tsinghua.iginx.engine.shared.expr.BaseExpression;
+import cn.edu.tsinghua.iginx.engine.shared.expr.Expression;
 import cn.edu.tsinghua.iginx.sql.exception.SQLParserException;
 import java.util.Collection;
 import java.util.HashSet;
@@ -30,7 +32,7 @@ import java.util.Set;
 
 public class InFilter implements Filter {
 
-  String path;
+  Expression expression;
 
   InOp inOp;
 
@@ -114,18 +116,29 @@ public class InFilter implements Filter {
 
   Set<Value> values = new HashSet<>();
 
+  public InFilter(Expression expr, InOp inOp, Collection<Value> values) {
+    this.expression = expr;
+    this.values.addAll(values);
+    this.inOp = inOp;
+  }
+
   public InFilter(String path, InOp inOp, Collection<Value> values) {
-    this.path = path;
+    this.expression = new BaseExpression(path);
     this.values.addAll(values);
     this.inOp = inOp;
   }
 
   public String getPath() {
-    return path;
+    return expression.getColumnName();
   }
 
+  // TODO 这个函数之后要删除
   public void setPath(String path) {
-    this.path = path;
+    this.expression = new BaseExpression(path);
+  }
+
+  public Expression getExpression() {
+    return expression;
   }
 
   public Set<Value> getValues() {
@@ -141,7 +154,7 @@ public class InFilter implements Filter {
   }
 
   public void reverseFunc() {
-    if (path.contains("*")) {
+    if (expression.getColumnName().contains("*")) {
       this.inOp = getDeMorganOpposite(inOp);
     } else {
       this.inOp = getOppositeOp(inOp);
@@ -164,12 +177,13 @@ public class InFilter implements Filter {
 
   @Override
   public Filter copy() {
-    return new InFilter(path, inOp, new HashSet<>(values));
+    return new InFilter(expression, inOp, new HashSet<>(values));
   }
 
   @Override
   public String toString() {
     return String.format(
-        "%s %s (%s)", path, inOp, values.toString().substring(1, values.toString().length() - 1));
+        "%s %s (%s)",
+        getPath(), inOp, values.toString().substring(1, values.toString().length() - 1));
   }
 }

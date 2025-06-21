@@ -40,7 +40,7 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
+            )< 30000
     )
 GROUP BY
     lineitem.l_returnflag,

@@ -2,9 +2,8 @@ WITH tmpTableC AS(
     SELECT
         o_orderkey AS orderkey,
         EXTRACT(
-            YEAR
-        FROM
-            o_orderdate
+            o_orderdate,
+            "year"
         ) AS orderyear
     FROM
         orders
@@ -43,8 +42,8 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
-    ) AS subquery
+            )< 30000
+    )
 GROUP BY
     nation,
     o_year

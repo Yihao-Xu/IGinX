@@ -99,7 +99,7 @@ public class FilterPushDownAddSchemaPrefixRule extends Rule {
 
           @Override
           public void visit(InFilter inFilter) {
-            inFilter.setPath(removePrefix(inFilter.getPath(), prefix));
+            removeExpressionPrefix(inFilter.getExpression(), prefix);
           }
         });
   }

@@ -85,8 +85,10 @@ public class RuleBasedPlanner implements Planner {
 
   @Override
   public Operator findBest() {
+    long startTime = System.currentTimeMillis();
     Set<Rule> onceRules = new HashSet<>(); // 一次性规则执行后加入此集合，不再执行
     boolean hasMatched;
+    Set<String> matchedRules = new HashSet<>();
     while (!reachLimit()) {
       TreeIterator treeIt = getTreeIterator();
       hasMatched = false;
@@ -115,6 +117,7 @@ public class RuleBasedPlanner implements Planner {
             continue;
           }
 
+          matchedRules.add(rule.getRuleGroupName());
           rule.onMatch(ruleCall);
           matchCount++;
 
@@ -128,6 +131,10 @@ public class RuleBasedPlanner implements Planner {
         break;
       }
     }
+    System.out.println("Root Info: " + root.getInfo());
+    System.out.println(
+        "Matched " + matchCount + " times in " + (System.currentTimeMillis() - startTime) + "ms");
+    System.out.println("Matched Rules: " + matchedRules);
     return root;
   }
 

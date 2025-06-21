@@ -99,7 +99,7 @@ public class FilterPushDownRenameRule extends Rule {
 
           @Override
           public void visit(InFilter inFilter) {
-            inFilter.setPath(PathUtils.recoverRenamedPattern(renameMap, inFilter.getPath()));
+            replaceExpressionByRenameMap(inFilter.getExpression(), renameMap);
           }
         });
 

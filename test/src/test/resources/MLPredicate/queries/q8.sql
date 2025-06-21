@@ -5,9 +5,8 @@ FROM
     (
         SELECT
             EXTRACT(
-                YEAR
-            FROM
-                orders.o_orderdate
+                orders.o_orderdate,
+                "year"
             ) AS o_year,
             lineitem.l_extendedprice *(
                 1 - lineitem.l_discount
@@ -43,8 +42,8 @@ FROM
                 partsupp.ps_supplycost,
                 partsupp.ps_availqty,
                 lineitem.l_discount
-            )> 30000
-    ) AS subquery
+            )< 30000
+    )
 GROUP BY
     o_year
 ORDER BY

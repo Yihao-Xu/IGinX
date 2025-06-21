@@ -25,6 +25,7 @@ import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
 import cn.edu.tsinghua.iginx.metadata.entity.ColumnsInterval;
 import cn.edu.tsinghua.iginx.metadata.entity.FragmentMeta;
 import cn.edu.tsinghua.iginx.sql.exception.SQLParserException;
+import cn.edu.tsinghua.iginx.sql.utils.ExpressionUtils;
 import cn.edu.tsinghua.iginx.utils.StringUtils;
 import java.util.*;
 import java.util.function.Function;
@@ -1169,5 +1170,48 @@ public class LogicalFilterUtils {
       }
     }
     return true;
+  }
+
+  public static List<cn.edu.tsinghua.iginx.engine.shared.function.Function> getUDFList(
+      Filter filter) {
+    List<cn.edu.tsinghua.iginx.engine.shared.function.Function> udfList = new ArrayList<>();
+    filter.accept(
+        new FilterVisitor() {
+          @Override
+          public void visit(AndFilter filter) {}
+
+          @Override
+          public void visit(OrFilter filter) {}
+
+          @Override
+          public void visit(NotFilter filter) {}
+
+          @Override
+          public void visit(KeyFilter filter) {}
+
+          @Override
+          public void visit(ValueFilter filter) {}
+
+          @Override
+          public void visit(PathFilter filter) {}
+
+          @Override
+          public void visit(BoolFilter filter) {}
+
+          @Override
+          public void visit(ExprFilter filter) {
+            // 获取表达式中的UDF函数
+            List<cn.edu.tsinghua.iginx.engine.shared.function.Function> functionsA =
+                ExpressionUtils.getUDFList(filter.getExpressionA());
+            List<cn.edu.tsinghua.iginx.engine.shared.function.Function> functionsB =
+                ExpressionUtils.getUDFList(filter.getExpressionB());
+            udfList.addAll(functionsA);
+            udfList.addAll(functionsB);
+          }
+
+          @Override
+          public void visit(InFilter filter) {}
+        });
+    return udfList;
   }
 }

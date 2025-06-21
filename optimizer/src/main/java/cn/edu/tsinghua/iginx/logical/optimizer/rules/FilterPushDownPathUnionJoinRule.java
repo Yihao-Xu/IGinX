@@ -114,11 +114,13 @@ public class FilterPushDownPathUnionJoinRule extends Rule {
         leftFilter = LogicalFilterUtils.getSubFilterFromPatterns(filter.copy(), leftPatterns);
         rightFilter = LogicalFilterUtils.getSubFilterFromPatterns(filter.copy(), rightPatterns);
         if (LogicalFilterUtils.getPathsFromFilter(leftFilter).stream()
-            .anyMatch(path -> path.startsWith(MarkJoin.MARK_PREFIX))) {
+                .anyMatch(path -> path.startsWith(MarkJoin.MARK_PREFIX))
+            || !LogicalFilterUtils.getUDFList(leftFilter).isEmpty()) {
           leftFilter = new BoolFilter(true);
         }
         if (LogicalFilterUtils.getPathsFromFilter(rightFilter).stream()
-            .anyMatch(path -> path.startsWith(MarkJoin.MARK_PREFIX))) {
+                .anyMatch(path -> path.startsWith(MarkJoin.MARK_PREFIX))
+            || !LogicalFilterUtils.getUDFList(rightFilter).isEmpty()) {
           rightFilter = new BoolFilter(true);
         }
       } else {

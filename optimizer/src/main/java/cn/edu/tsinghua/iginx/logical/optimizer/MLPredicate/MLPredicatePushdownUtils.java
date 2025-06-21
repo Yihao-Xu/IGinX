@@ -19,7 +19,6 @@
  */
 package cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate;
 
-import cn.edu.tsinghua.iginx.engine.logical.utils.LogicalFilterUtils;
 import cn.edu.tsinghua.iginx.engine.logical.utils.OperatorUtils;
 import cn.edu.tsinghua.iginx.engine.physical.memory.execute.utils.ExprUtils;
 import cn.edu.tsinghua.iginx.engine.shared.data.Value;
@@ -27,13 +26,12 @@ import cn.edu.tsinghua.iginx.engine.shared.expr.*;
 import cn.edu.tsinghua.iginx.engine.shared.operator.Project;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
 import cn.edu.tsinghua.iginx.engine.shared.source.FragmentSource;
+import cn.edu.tsinghua.iginx.engine.shared.source.SourceType;
 import cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate.exception.MLPredicateUnsupportedModelException;
 import cn.edu.tsinghua.iginx.metadata.IMetaManager;
 import cn.edu.tsinghua.iginx.metadata.MetaManagerWrapper;
 import cn.edu.tsinghua.iginx.metadata.entity.FragmentMeta;
-import cn.edu.tsinghua.iginx.utils.Pair;
 import cn.edu.tsinghua.iginx.utils.StringUtils;
-
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -51,6 +49,7 @@ public class MLPredicatePushdownUtils {
       FragmentMeta fragment = metaManager.getLatestFragmentByColumnName(col);
 
       for (Project project : projects) {
+        if (project.getSource().getType() != SourceType.Fragment) continue;
         FragmentMeta curFragment = ((FragmentSource) project.getSource()).getFragment();
         if (!curFragment.getMasterStorageUnitId().equals(fragment.getMasterStorageUnitId())) {
           continue;
@@ -116,7 +115,7 @@ public class MLPredicatePushdownUtils {
       Filter filter) {
     List<Filter> res = new ArrayList<>();
     List<String> cols = rmi.cols;
-    List<Double> weights = rmi.weights;
+    List<Double> weights = new ArrayList<>(rmi.weights);
 
     // 生成复合谓词时，将同一个Project-Fragment的列看作一个整体
     List<Project> projectFragmentList = new ArrayList<>();
@@ -154,14 +153,21 @@ public class MLPredicatePushdownUtils {
       throw new IllegalArgumentException("The right side of the ML filter should be a number");
     }
 
-    if(rmi.modelType == ModelType.LogicalRegression){
-      if(l == 0){
+    if (rmi.modelType == ModelType.LogicalRegression) {
+      if (l == 0) {
         l = 0;
-        op = Op.GE;
-      }else{
+        op = Op.LE;
+      } else {
         l = 0;
-        op = Op.L;
+        op = Op.G;
       }
+    }
+
+    // 如果符号是 > ,则将所有权重和右侧常数取反
+    if (op == Op.G) {
+      w0 = -w0;
+      l = -l;
+      weights.replaceAll(aDouble -> -aDouble);
     }
 
     // 先获取原子谓词，获取所有列的原子谓词边界
@@ -228,7 +234,7 @@ public class MLPredicatePushdownUtils {
       Expression rightExpr = new ConstantExpression(rightConst);
 
       // 构建谓词
-      Filter newFilter = new ExprFilter(leftExpr, op, rightExpr);
+      Filter newFilter = new ExprFilter(leftExpr, Op.LE, rightExpr);
       res.add(newFilter);
     }
 
@@ -297,7 +303,9 @@ public class MLPredicatePushdownUtils {
           Filter curFilter =
               getFiltersFromDecisionTreeNode(node.filter.copy(), needCols, modelCol2IGinXCol);
 
-          if(curFilter.getType() != FilterType.Bool && i != path.size() -1 && node.left != path.get(i+1)){
+          if (curFilter.getType() != FilterType.Bool
+              && i != path.size() - 1
+              && node.left != path.get(i + 1)) {
             ValueFilter valueFilter = (ValueFilter) curFilter;
             curFilter = new ValueFilter(valueFilter.getPath(), Op.G, valueFilter.getValue());
           }
@@ -308,7 +316,7 @@ public class MLPredicatePushdownUtils {
           andFilter.getChildren().add(curFilter);
         }
         if (andFilter.getChildren().size() > 0) {
-            orChildren.add(andFilter);
+          orChildren.add(andFilter);
         }
       }
       OrFilter orFilter = new OrFilter(orChildren);
@@ -323,10 +331,10 @@ public class MLPredicatePushdownUtils {
   private static Filter simplifyFilter(OrFilter f) {
     Map<String, IntervalGroup> col2IntervalGroup = getCol2IntervalGroup(f);
     List<Filter> orChildren = new ArrayList<>();
-    for(Map.Entry<String, IntervalGroup> entry: col2IntervalGroup.entrySet()){
+    for (Map.Entry<String, IntervalGroup> entry : col2IntervalGroup.entrySet()) {
       String col = entry.getKey();
       IntervalGroup intervalGroup = entry.getValue();
-      for(Interval interval: intervalGroup.intervals) {
+      for (Interval interval : intervalGroup.intervals) {
         List<Filter> curFilters = new ArrayList<>();
         if (interval.lowerBound != Double.MIN_VALUE) {
           curFilters.add(new ValueFilter(col, Op.G, new Value(interval.lowerBound)));
@@ -344,44 +352,45 @@ public class MLPredicatePushdownUtils {
     return new OrFilter(orChildren);
   }
 
-  private static class Interval{
+  private static class Interval {
     double lowerBound;
     double upperBound;
 
-    public Interval(double lowerBound, double upperBound){
+    public Interval(double lowerBound, double upperBound) {
       this.lowerBound = lowerBound;
       this.upperBound = upperBound;
     }
 
-    public static Interval intersect(Interval a, Interval b){
-      return new Interval(Math.max(a.lowerBound, b.lowerBound), Math.min(a.upperBound, b.upperBound));
-
+    public static Interval intersect(Interval a, Interval b) {
+      return new Interval(
+          Math.max(a.lowerBound, b.lowerBound), Math.min(a.upperBound, b.upperBound));
     }
 
-    public static Interval union(Interval a, Interval b){
-      return new Interval(Math.min(a.lowerBound, b.lowerBound), Math.max(a.upperBound, b.upperBound));
+    public static Interval union(Interval a, Interval b) {
+      return new Interval(
+          Math.min(a.lowerBound, b.lowerBound), Math.max(a.upperBound, b.upperBound));
     }
 
-    public static Interval FullInterval(){
+    public static Interval FullInterval() {
       return new Interval(Double.MIN_VALUE, Double.MAX_VALUE);
     }
   }
 
-  private static class IntervalGroup{
+  private static class IntervalGroup {
     public List<Interval> intervals;
 
-    public IntervalGroup(List<Interval> intervals){
+    public IntervalGroup(List<Interval> intervals) {
       this.intervals = intervals;
     }
 
-    public IntervalGroup(){
+    public IntervalGroup() {
       this.intervals = new ArrayList<>();
     }
 
-    public void addUnion(Interval interval){
-      for(int i = 0; i < intervals.size(); i++){
+    public void addUnion(Interval interval) {
+      for (int i = 0; i < intervals.size(); i++) {
         Interval cur = intervals.get(i);
-        if(cur.lowerBound > interval.lowerBound){
+        if (cur.lowerBound > interval.lowerBound) {
           intervals.add(i, interval);
           return;
         }
@@ -390,33 +399,30 @@ public class MLPredicatePushdownUtils {
       merge();
     }
 
-    private void merge(){
+    private void merge() {
       // 插入时已排序
       int n = intervals.size();
-        for(int i = 0; i < n - 1; i++){
-            if(intervals.get(i).upperBound >= intervals.get(i+1).lowerBound){
-              intervals.set(i, Interval.union(intervals.get(i), intervals.get(i+1)));
-              intervals.remove(i+1);
-              i--;
-              n--;
-            }
+      for (int i = 0; i < n - 1; i++) {
+        if (intervals.get(i).upperBound >= intervals.get(i + 1).lowerBound) {
+          intervals.set(i, Interval.union(intervals.get(i), intervals.get(i + 1)));
+          intervals.remove(i + 1);
+          i--;
+          n--;
         }
+      }
     }
-
   }
 
-  /**
-   * 从OrFilter中提取出各个列的值域，传入的filter必须是OrFilter(AndFilter(ValueFilter))的形式
-   */
-  private static Map<String, IntervalGroup> getCol2IntervalGroup(OrFilter orFilter){
+  /** 从OrFilter中提取出各个列的值域，传入的filter必须是OrFilter(AndFilter(ValueFilter))的形式 */
+  private static Map<String, IntervalGroup> getCol2IntervalGroup(OrFilter orFilter) {
     Map<String, IntervalGroup> res = new HashMap<>();
-    for(Filter f: orFilter.getChildren()){
+    for (Filter f : orFilter.getChildren()) {
       AndFilter andFilter = (AndFilter) f;
       Map<String, Interval> col2Interval = getCol2Interval(andFilter);
-      for(Map.Entry<String, Interval> entry: col2Interval.entrySet()){
+      for (Map.Entry<String, Interval> entry : col2Interval.entrySet()) {
         String col = entry.getKey();
         Interval interval = entry.getValue();
-        if(!res.containsKey(col)){
+        if (!res.containsKey(col)) {
           res.put(col, new IntervalGroup());
         }
         res.get(col).addUnion(interval);
@@ -425,25 +431,28 @@ public class MLPredicatePushdownUtils {
     return res;
   }
 
-  /**
-   * 从AndFilter中提取出各个列的值域，传入的filter必须是AndFilter(ValueFilter)的形式
-   */
+  /** 从AndFilter中提取出各个列的值域，传入的filter必须是AndFilter(ValueFilter)的形式 */
   private static Map<String, Interval> getCol2Interval(AndFilter filter) {
     Map<String, Interval> res = new HashMap<>();
 
-    for(Filter f: filter.getChildren()){
-        ValueFilter valueFilter = (ValueFilter) f;
-        if(Op.isLOp(valueFilter.getOp())) {
-          res.put(valueFilter.getPath(), Interval.intersect(res.getOrDefault(valueFilter.getPath(), Interval.FullInterval()),
-                  new Interval(Double.MIN_VALUE, (valueFilter.getValue()).getDoubleV())));
-        }else{
-            res.put(valueFilter.getPath(), Interval.intersect(res.getOrDefault(valueFilter.getPath(), Interval.FullInterval()),
-                    new Interval((valueFilter.getValue()).getDoubleV(), Double.MAX_VALUE)));
-        }
+    for (Filter f : filter.getChildren()) {
+      ValueFilter valueFilter = (ValueFilter) f;
+      if (Op.isLOp(valueFilter.getOp())) {
+        res.put(
+            valueFilter.getPath(),
+            Interval.intersect(
+                res.getOrDefault(valueFilter.getPath(), Interval.FullInterval()),
+                new Interval(Double.MIN_VALUE, (valueFilter.getValue()).getDoubleV())));
+      } else {
+        res.put(
+            valueFilter.getPath(),
+            Interval.intersect(
+                res.getOrDefault(valueFilter.getPath(), Interval.FullInterval()),
+                new Interval((valueFilter.getValue()).getDoubleV(), Double.MAX_VALUE)));
       }
+    }
 
     return res;
-
   }
 
   /**

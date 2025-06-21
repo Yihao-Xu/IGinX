@@ -98,6 +98,13 @@ public class FilterPushOutJoinConditionRule extends Rule {
         filterA = new BoolFilter(true);
       }
 
+      // 如果filter中包含UDF,不要下推
+      if (!LogicalFilterUtils.getUDFList(filterA).isEmpty()
+          || !LogicalFilterUtils.getUDFList(filterB).isEmpty()) {
+        remainFilter.add(filter);
+        continue;
+      }
+
       // 如果处理后的filter不是bool类型，那就可以下推
       if (filterA.getType() != FilterType.Bool) {
         pushFilterA.add(filterA);

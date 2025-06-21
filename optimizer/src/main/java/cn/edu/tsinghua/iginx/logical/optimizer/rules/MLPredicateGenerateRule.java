@@ -91,7 +91,7 @@ public class MLPredicateGenerateRule extends Rule {
             MLPredicatePushdownUtils.generateMLPredicate(modelInfo, root, mlFilter.filter);
 
         // 直接将ML谓词加入当前算子的filter中
-        generated.add(filter);
+        generated.add(0, filter);
         setFilter(root, new AndFilter(generated));
 
         call.transformTo(root);

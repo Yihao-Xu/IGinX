@@ -140,8 +140,7 @@ public class RelationalStorage implements IStorage {
       config.setPassword(meta.getExtraParams().get(PASSWORD));
       config.addDataSourceProperty(
           "prepStmtCacheSize", meta.getExtraParams().getOrDefault("prep_stmt_cache_size", "250"));
-      config.setLeakDetectionThreshold(
-          Long.parseLong(meta.getExtraParams().getOrDefault("leak_detection_threshold", "2500")));
+      config.setLeakDetectionThreshold(0); // 禁用泄漏检测
       config.setConnectionTimeout(
           Long.parseLong(meta.getExtraParams().getOrDefault("connection_timeout", "30000")));
       config.setIdleTimeout(
@@ -698,6 +697,22 @@ public class RelationalStorage implements IStorage {
 
   private TaskExecuteResult executeProjectWithFilter(
       Project project, Filter filter, DataArea dataArea) {
+    if (filter.getType() == FilterType.And) {
+      // 把所有ExprFilter放到最后
+      List<Filter> exprFilters = new ArrayList<>();
+      List<Filter> otherFilters = new ArrayList<>();
+      for (Filter child : ((AndFilter) filter).getChildren()) {
+        if (child.getType() == FilterType.Expr) {
+          exprFilters.add(child);
+        } else {
+          otherFilters.add(child);
+        }
+      }
+
+      otherFilters.addAll(exprFilters);
+      filter = new AndFilter(otherFilters);
+    }
+
     try {
       String databaseName = dataArea.getStorageUnit();
       Connection conn = getConnection(databaseName);
@@ -1450,7 +1465,9 @@ public class RelationalStorage implements IStorage {
 
         sqlColumnsStr.append(
             String.format(
-                format, functionName, exprAdapt(ExprUtils.copy(expr)).getCalColumnName()));
+                format,
+                functionName,
+                exprAdapt(ExprUtils.copy(expr), relationalMeta).getCalColumnName()));
         sqlColumnsStr.append(" AS ");
         sqlColumnsStr.append(quote).append(IGinXTagKVName).append(quote);
         sqlColumnsStr.append(", ");
@@ -1460,7 +1477,7 @@ public class RelationalStorage implements IStorage {
     for (Expression expr : gbc) {
       String originColumnStr = quote + expr.getColumnName() + quote;
       sqlColumnsStr
-          .append(exprAdapt(ExprUtils.copy(expr)).getCalColumnName())
+          .append(exprAdapt(ExprUtils.copy(expr), relationalMeta).getCalColumnName())
           .append(" AS ")
           .append(originColumnStr)
           .append(", ");
@@ -1472,20 +1489,25 @@ public class RelationalStorage implements IStorage {
       statement +=
           " GROUP BY "
               + gbc.stream()
-                  .map(e -> exprAdapt(ExprUtils.copy(e)).getCalColumnName())
+                  .map(e -> exprAdapt(ExprUtils.copy(e), relationalMeta).getCalColumnName())
                   .collect(Collectors.joining(", "));
     }
     statement += ";";
     return statement;
   }
 
+  public static Expression exprAdapt(Expression expr, AbstractRelationalMeta rm) {
+    return exprAdapt(expr, rm, true);
+  }
+
   /**
    * 表达式适配下推到PG的形式 1.将baseExpression转换为QuoteBaseExpression，以让其在SQL中被引号包裹
    * 如果SQL使用了JOIN,那列名形如`table.column`，如果没有，则形如`table`.`column`
    */
-  private Expression exprAdapt(Expression expr) {
+  public static Expression exprAdapt(
+      Expression expr, AbstractRelationalMeta rm, boolean useDerived) {
     if (expr instanceof BaseExpression) {
-      return new QuoteBaseExpressionDecorator((BaseExpression) expr, relationalMeta.getQuote());
+      return new QuoteBaseExpressionDecorator((BaseExpression) expr, rm.getQuote());
     }
     expr.accept(
         new ExpressionVisitor() {
@@ -1497,12 +1519,12 @@ public class RelationalStorage implements IStorage {
             if (expression.getLeftExpression() instanceof BaseExpression) {
               expression.setLeftExpression(
                   new QuoteBaseExpressionDecorator(
-                      (BaseExpression) expression.getLeftExpression(), relationalMeta.getQuote()));
+                      (BaseExpression) expression.getLeftExpression(), rm.getQuote(), useDerived));
             }
             if (expression.getRightExpression() instanceof BaseExpression) {
               expression.setRightExpression(
                   new QuoteBaseExpressionDecorator(
-                      (BaseExpression) expression.getRightExpression(), relationalMeta.getQuote()));
+                      (BaseExpression) expression.getRightExpression(), rm.getQuote(), useDerived));
             }
           }
 
@@ -1511,7 +1533,7 @@ public class RelationalStorage implements IStorage {
             if (expression.getExpression() instanceof BaseExpression) {
               expression.setExpression(
                   new QuoteBaseExpressionDecorator(
-                      (BaseExpression) expression.getExpression(), relationalMeta.getQuote()));
+                      (BaseExpression) expression.getExpression(), rm.getQuote(), useDerived));
             }
           }
 
@@ -1531,7 +1553,8 @@ public class RelationalStorage implements IStorage {
                         i,
                         new QuoteBaseExpressionDecorator(
                             (BaseExpression) expression.getExpressions().get(i),
-                            relationalMeta.getQuote()));
+                            rm.getQuote(),
+                            useDerived));
               }
             }
           }
@@ -1546,7 +1569,8 @@ public class RelationalStorage implements IStorage {
                         i,
                         new QuoteBaseExpressionDecorator(
                             (BaseExpression) expression.getChildren().get(i),
-                            relationalMeta.getQuote()));
+                            rm.getQuote(),
+                            useDerived));
               }
             }
           }
@@ -1556,7 +1580,7 @@ public class RelationalStorage implements IStorage {
             if (expression.getExpression() instanceof BaseExpression) {
               expression.setExpression(
                   new QuoteBaseExpressionDecorator(
-                      (BaseExpression) expression.getExpression(), relationalMeta.getQuote()));
+                      (BaseExpression) expression.getExpression(), rm.getQuote(), useDerived));
             }
           }
 
@@ -1898,7 +1922,7 @@ public class RelationalStorage implements IStorage {
             stmt = defaultConn.createStatement();
             statement = String.format(relationalMeta.getDropDatabaseStatement(), databaseName);
             LOGGER.info("[Delete] execute delete: {}", statement);
-            stmt.execute(statement); // 删除数据库
+            //            stmt.execute(statement); // 删除数据库
             stmt.close();
             defaultConn.close();
             return new TaskExecuteResult(null, null);

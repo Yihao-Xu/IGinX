@@ -80,11 +80,11 @@ public class StatsManagerMock {
     minMap.put("lineitem.l_linenumber", 1d);
     maxMap.put("lineitem.l_linenumber", 7d);
     minMap.put("lineitem.l_quantity", 1d);
-    maxMap.put("lineitem.l_quantity", 50d);
+    maxMap.put("lineitem.l_quantity", 23d);
     minMap.put("lineitem.l_extendedprice", 901.0d);
     maxMap.put("lineitem.l_extendedprice", 95949.5d);
-    minMap.put("lineitem.l_discount", 0.0d);
-    maxMap.put("lineitem.l_discount", 0.1d);
+    minMap.put("lineitem.l_discount", 0.05d);
+    maxMap.put("lineitem.l_discount", 0.07d);
     minMap.put("lineitem.l_tax", 0.0d);
     maxMap.put("lineitem.l_tax", 0.08d);
   }

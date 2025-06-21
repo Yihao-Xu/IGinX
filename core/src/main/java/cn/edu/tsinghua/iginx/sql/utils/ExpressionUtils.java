@@ -20,16 +20,12 @@
 package cn.edu.tsinghua.iginx.sql.utils;
 
 import cn.edu.tsinghua.iginx.engine.physical.memory.execute.utils.ExprUtils;
-import cn.edu.tsinghua.iginx.engine.shared.expr.BaseExpression;
-import cn.edu.tsinghua.iginx.engine.shared.expr.BinaryExpression;
-import cn.edu.tsinghua.iginx.engine.shared.expr.BracketExpression;
-import cn.edu.tsinghua.iginx.engine.shared.expr.Expression;
-import cn.edu.tsinghua.iginx.engine.shared.expr.FuncExpression;
-import cn.edu.tsinghua.iginx.engine.shared.expr.MultipleExpression;
-import cn.edu.tsinghua.iginx.engine.shared.expr.Operator;
-import cn.edu.tsinghua.iginx.engine.shared.expr.UnaryExpression;
+import cn.edu.tsinghua.iginx.engine.shared.expr.*;
+import cn.edu.tsinghua.iginx.engine.shared.function.Function;
+import cn.edu.tsinghua.iginx.engine.shared.function.FunctionType;
 import cn.edu.tsinghua.iginx.engine.shared.function.FunctionUtils;
 import cn.edu.tsinghua.iginx.engine.shared.function.MappingType;
+import cn.edu.tsinghua.iginx.engine.shared.function.manager.FunctionManager;
 import cn.edu.tsinghua.iginx.sql.exception.SQLParserException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -186,5 +182,53 @@ public class ExpressionUtils {
       default:
         throw new SQLParserException("Unknown expression type: " + expression.getType());
     }
+  }
+
+  public static List<Function> getUDFList(Expression expr) {
+    List<Function> udfList = new ArrayList<>();
+    expr.accept(
+        new ExpressionVisitor() {
+          @Override
+          public void visit(BaseExpression expression) {}
+
+          @Override
+          public void visit(BinaryExpression expression) {}
+
+          @Override
+          public void visit(BracketExpression expression) {}
+
+          @Override
+          public void visit(ConstantExpression expression) {}
+
+          @Override
+          public void visit(FromValueExpression expression) {}
+
+          @Override
+          public void visit(FuncExpression expression) {
+            String funcName = expression.getFuncName();
+            FunctionManager fm = FunctionManager.getInstance();
+            Function function = fm.getFunction(funcName);
+            if (function != null && function.getFunctionType() == FunctionType.UDF) {
+              udfList.add(function);
+            }
+          }
+
+          @Override
+          public void visit(MultipleExpression expression) {}
+
+          @Override
+          public void visit(UnaryExpression expression) {}
+
+          @Override
+          public void visit(CaseWhenExpression expression) {}
+
+          @Override
+          public void visit(KeyExpression expression) {}
+
+          @Override
+          public void visit(SequenceExpression expression) {}
+        });
+
+    return udfList;
   }
 }

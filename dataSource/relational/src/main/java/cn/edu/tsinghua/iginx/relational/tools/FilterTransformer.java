@@ -22,7 +22,9 @@ package cn.edu.tsinghua.iginx.relational.tools;
 import static cn.edu.tsinghua.iginx.relational.tools.Constants.*;
 
 import cn.edu.tsinghua.iginx.engine.shared.data.Value;
+import cn.edu.tsinghua.iginx.engine.shared.expr.*;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
+import cn.edu.tsinghua.iginx.relational.RelationalStorage;
 import cn.edu.tsinghua.iginx.relational.meta.AbstractRelationalMeta;
 import cn.edu.tsinghua.iginx.thrift.DataType;
 import java.util.stream.Collectors;
@@ -153,6 +155,10 @@ public class FilterTransformer {
   }
 
   private String toString(InFilter filter) {
+    if (filter.getExpression().getType() != Expression.ExpressionType.Base) {
+      return "True";
+    }
+
     RelationSchema schema = new RelationSchema(filter.getPath(), relationalMeta.getQuote());
     String path = schema.getQuoteFullName();
     String op = filter.getInOp().isNotOp() ? "not in" : "in";
@@ -176,7 +182,71 @@ public class FilterTransformer {
     return relationalMeta.getQuote() + name + relationalMeta.getQuote();
   }
 
-  private String toString(ExprFilter filter){
-    
+  private String toString(ExprFilter filter) {
+    // 判断是否只有四则运算
+    if (!isArithmetic(filter.getExpressionA()) || !isArithmetic(filter.getExpressionB())) {
+      return "";
+    }
+
+    String left =
+        RelationalStorage.exprAdapt(filter.getExpressionA(), relationalMeta, false)
+            .getCalColumnName();
+    String right =
+        RelationalStorage.exprAdapt(filter.getExpressionB(), relationalMeta, false)
+            .getCalColumnName();
+    String op = Op.op2StrWithoutAndOr(filter.getOp());
+    return left + " " + op + " " + right;
+  }
+
+  private boolean isArithmetic(Expression expr) {
+    boolean[] res = new boolean[1];
+    res[0] = true;
+    expr.accept(
+        new ExpressionVisitor() {
+          @Override
+          public void visit(BaseExpression expression) {}
+
+          @Override
+          public void visit(BinaryExpression expression) {}
+
+          @Override
+          public void visit(BracketExpression expression) {}
+
+          @Override
+          public void visit(ConstantExpression expression) {}
+
+          @Override
+          public void visit(FromValueExpression expression) {
+            res[0] = false;
+          }
+
+          @Override
+          public void visit(FuncExpression expression) {
+            res[0] = false;
+          }
+
+          @Override
+          public void visit(MultipleExpression expression) {}
+
+          @Override
+          public void visit(UnaryExpression expression) {}
+
+          @Override
+          public void visit(CaseWhenExpression expression) {
+            res[0] = false;
+          }
+
+          @Override
+          public void visit(KeyExpression expression) {
+            res[0] = false;
+          }
+
+          @Override
+          public void visit(SequenceExpression expression) {
+            res[0] = false;
+          }
+        });
+
+    return res[0];
   }
 }

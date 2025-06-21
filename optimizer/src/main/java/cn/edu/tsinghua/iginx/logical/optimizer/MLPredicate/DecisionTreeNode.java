@@ -20,7 +20,6 @@
 package cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate;
 
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
-import java.math.BigDecimal;
 
 public class DecisionTreeNode {
 

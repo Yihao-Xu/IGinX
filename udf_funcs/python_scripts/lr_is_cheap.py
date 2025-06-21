@@ -18,16 +18,13 @@
 # Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
-import time
-import warnings
-
 import joblib
 import numpy as np
-import pandas as pd
+import warnings
 from UDFMLPredicate import UDFMLPredicate
 
 
-class LRExtendPrice(UDFMLPredicate):
+class LRIsCheap(UDFMLPredicate):
     def __init__(self):
         self.model = None
         self.scaler = None
@@ -35,68 +32,41 @@ class LRExtendPrice(UDFMLPredicate):
         self.scale_ = None
 
     def get_scaler(self):
-        """Load the scaler from a given file path."""
-        scaler_path = "/home/xyh/code/MLPredicate/TPC-H/model/scaler.pkl"
-
+        scaler_path = "/home/xyh/code/MLPredicate/TPC-H/lg_model/scaler.pkl"
         try:
             with open(scaler_path, 'rb') as file:
                 self.scaler = joblib.load(file)
-                self.mean_ = self.scaler.mean_
-                self.scale_ = self.scaler.scale_
                 return self.scaler
         except Exception as e:
             raise RuntimeError(f"Failed to load scaler from {scaler_path}: {e}")
 
-    def use_scaler(self, row):
-        return (row - self.mean_) / self.scale_
-
     def get_model(self):
-        """Load the model from a given file path."""
-        model_path = "/home/xyh/code/MLPredicate/TPC-H/model/linear_regression_model.pkl"
+        model_path = "/home/xyh/code/MLPredicate/TPC-H/lg_model/logistic_model.pkl"
         try:
             with open(model_path, 'rb') as file:
                 self.model = joblib.load(file)
-            return self.model
+                return self.model
         except Exception as e:
             raise RuntimeError(f"Failed to load model from {model_path}: {e}")
 
     def transform(self, data, *args, **kwargs):
-        """Apply the loaded model to the input data."""
         res = self.buildHeader(data)
         warnings.filterwarnings("ignore")
-        if self.get_model() is None:
-            raise ValueError("Model is not loaded. Please load a model using get_model().")
+
+        if self.model is None:
+            self.get_model()
+        if self.scaler is None:
+            self.get_scaler()
 
         try:
-            # 取出特征列（根据 data 结构可能需要调整索引）
-            feature_values = np.array(data[2][1:], dtype=float).reshape(1, -1)
-
-            # 归一化 忽略警告
-            if self.scaler is None:
-                self.get_scaler()
-
-            if self.scaler is not None:
-                input_data = self.use_scaler(feature_values)
-            else:
-                print("no scaler")
-                input_data = pd.DataFrame(feature_values)
-
-
-            predictions = self.model.predict(input_data)
-
-            res.append([float(predictions[0])])
-
+            feature_values = np.array([data[2][1:]])
+            input_data = self.scaler.transform(feature_values)
+            prediction = self.model.predict(input_data)
+            res.append([int(prediction[0])])
         except Exception as e:
-            raise RuntimeError(f"Error during model prediction: {e}")
+            raise RuntimeError(f"Error during logistic prediction: {e}")
 
         return res
 
     def buildHeader(self, data):
-        """Format the output with headers."""
-        return [["udf_lr(" + ", ".join(data[0][1:]) +")"], ["double"]]
-
-
-if __name__ == "__main__":
-    # Test the UDF
-    udf = LRExtendPrice()
-    print(udf.get_model_info())
+        return [["udf_lr(is_cheap)"], ["LONG"]]

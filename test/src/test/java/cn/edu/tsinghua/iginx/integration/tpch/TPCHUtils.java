@@ -26,6 +26,7 @@ import cn.edu.tsinghua.iginx.integration.controller.Controller;
 import cn.edu.tsinghua.iginx.integration.tool.ConfLoader;
 import cn.edu.tsinghua.iginx.session.Session;
 import cn.edu.tsinghua.iginx.session.SessionExecuteSqlResult;
+import cn.edu.tsinghua.iginx.utils.Pair;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.io.MoreFiles;
 import java.io.*;
@@ -46,8 +47,7 @@ public class TPCHUtils {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TPCHUtils.class);
 
-  private static final String DATA_DIR =
-      System.getProperty("user.dir") + "/../tpc/TPC-H V3.0.1/data";
+  private static final String DATA_DIR = "/home/xyh/下载/tpc/TPC-H V3.0.1/data/";
   static final String FAILED_QUERY_ID_PATH =
       "src/test/resources/tpch/runtimeInfo/failedQueryIds.txt";
 
@@ -311,10 +311,14 @@ public class TPCHUtils {
   }
 
   public static long executeTPCHQuery(Session session, String queryId, boolean needValidate) {
+    return executeTPCHQuery(session, queryId, needValidate, "src/test/resources/tpch/queries/");
+  }
+
+  public static long executeTPCHQuery(
+      Session session, String queryId, boolean needValidate, String queryPath) {
     String sqlString = null;
     try {
-      sqlString =
-          TPCHUtils.readSqlFileAsString("src/test/resources/tpch/queries/q" + queryId + ".sql");
+      sqlString = TPCHUtils.readSqlFileAsString(queryPath + "q" + queryId + ".sql");
     } catch (IOException e) {
       LOGGER.error("Fail to read sql file: q{}.sql. Caused by: ", queryId, e);
       Assert.fail();
@@ -334,6 +338,28 @@ public class TPCHUtils {
       validate(result, queryId);
     }
     return cost;
+  }
+
+  public static Pair<String, Long> executeTPCHQuery(
+      Session session, String queryId, String queryPath) {
+    String sqlString = null;
+    try {
+      sqlString = TPCHUtils.readSqlFileAsString(queryPath + "q" + queryId + ".sql");
+    } catch (IOException e) {
+      LOGGER.error("Fail to read sql file: q{}.sql. Caused by: ", queryId, e);
+    }
+    String[] sqls = sqlString.split(";");
+    String sql = sqls[sqls.length - 2] + ";";
+    SessionExecuteSqlResult result = null;
+    long startTime = System.currentTimeMillis();
+    try {
+      result = session.executeSql(sql);
+    } catch (SessionException e) {
+      LOGGER.error("Statement: \"{}\" execute fail. Caused by:", sql, e);
+    }
+    long cost = System.currentTimeMillis() - startTime;
+
+    return new Pair<>(result.getResultInString(false, ""), cost);
   }
 
   private static void validate(SessionExecuteSqlResult result, String queryId) {

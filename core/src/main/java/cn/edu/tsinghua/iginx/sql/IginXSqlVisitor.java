@@ -1737,24 +1737,11 @@ public class IginXSqlVisitor extends SqlBaseVisitor<Statement> {
   }
 
   private FilterData parseInFilter(PredicateContext ctx, UnarySelectStatement statement, Pos pos) {
-    String path = parsePath(ctx.path().get(0));
+    Expression expr = new BaseExpression("");
     List<Value> values = new ArrayList<>();
-
-    FromPart fromPart = getFromPartIfNeedPrefix(statement, pos);
-
-    if (fromPart != null) {
-      path = fromPart.getPrefix() + SQLConstant.DOT + path;
-    }
-
     // deal with having filter with functions like having avg(a) > 3.
     // we need a instead of avg(a) to combine fragments' raw data.
-    if (ctx.functionName() != null) {
-      String funcName = ctx.functionName().getText();
-      if (FunctionUtils.isSysFunc(funcName)) {
-        funcName = funcName.toLowerCase();
-      }
-      path = funcName + "(" + path + ")";
-    }
+    expr = parseExpression(ctx.expression().get(0), statement, pos).get(0);
 
     for (ConstantContext constantContext : ctx.array().constant()) {
       values.add(new Value(parseValue(constantContext)));
@@ -1763,7 +1750,7 @@ public class IginXSqlVisitor extends SqlBaseVisitor<Statement> {
 
     FilterData filterData =
         new FilterData(
-            new InFilter(path, InFilter.InOp.str2Op(inOperatorContext.getText()), values));
+            new InFilter(expr, InFilter.InOp.str2Op(inOperatorContext.getText()), values));
     filterData.addPaths(getPathsFromPredicate(ctx, statement));
     return filterData;
   }

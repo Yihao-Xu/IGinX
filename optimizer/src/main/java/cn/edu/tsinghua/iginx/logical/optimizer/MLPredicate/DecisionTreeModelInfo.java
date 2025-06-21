@@ -19,7 +19,6 @@
  */
 package cn.edu.tsinghua.iginx.logical.optimizer.MLPredicate;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
